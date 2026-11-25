@@ -274,11 +274,12 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
       <div>
         <label for="tzPreset">Timezone</label>
         <select id="tzPreset" onchange="onTzPreset()">
-          <option value="MST7">BC / Yukon / Arizona (UTC-7, No DST)</option>
-          <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain (Denver / Calgary)</option>
-          <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific (LA / Seattle)</option>
-          <option value="CST6CDT,M3.2.0,M11.1.0">US Central (Chicago)</option>
-          <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern (New York / Toronto)</option>
+          <option value="PDT7">Vancouver / BC (Permanent UTC-7, No DST)</option>
+          <option value="MST7">Yukon / Arizona (UTC-7, No DST)</option>
+          <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific - LA / Seattle (DST)</option>
+          <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain - Denver / Calgary (DST)</option>
+          <option value="CST6CDT,M3.2.0,M11.1.0">US Central - Chicago (DST)</option>
+          <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern - New York / Toronto (DST)</option>
           <option value="GMT0BST,M3.5.0/1,M10.5.0">UK (London)</option>
           <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe (Paris / Berlin)</option>
           <option value="CST-8">China / HK / Singapore / Taipei</option>
@@ -336,12 +337,18 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
 
   <div class="card">
     <h2>Firmware Update (OTA) <span class="badge" id="fwBadge">...</span></h2>
-    <label for="ghRepo">GitHub Releases Update</label>
-    <div class="row" style="margin-bottom:8px">
-      <input id="ghRepo" type="text" value="ckwcfm/note4c" maxlength="100" placeholder="owner/repo">
-      <button class="btn btn-ghost" id="ghCheckBtn" onclick="checkGithubOta()" style="flex:0 0 auto">Check Release</button>
-      <button class="btn btn-accent" id="ghInstallBtn" onclick="installGithubOta()" style="flex:0 0 auto">Install Latest</button>
+    <div id="fwCurrent" style="background:#fafaf9;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:13px">
+      Installed: <b id="fwInstalled">...</b>
     </div>
+    <label for="ghRepo">GitHub Releases Update</label>
+    <div class="row" style="margin-bottom:6px">
+      <input id="ghRepo" type="text" value="ckwcfm/note4c" maxlength="100" placeholder="owner/repo">
+      <button class="btn btn-ghost" id="ghCheckBtn" onclick="checkGithubOta(false)" style="flex:0 0 auto">Check Update</button>
+      <button class="btn btn-accent" id="ghInstallBtn" onclick="installGithubOta()" disabled style="flex:0 0 auto;opacity:.5">Install Update</button>
+    </div>
+    <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;margin:2px 0 6px;cursor:pointer">
+      <input type="checkbox" id="ghForce" onchange="refreshInstallBtn()"> Allow reinstalling current/older version
+    </label>
     <details style="margin-top:8px">
       <summary>Or upload a local .bin file manually</summary>
       <p class="help">Upload a compiled <code>note4c_framework.bin</code> over Wi-Fi. Wi-Fi and calendar settings are preserved.</p>
@@ -445,10 +452,43 @@ function updateScheduleHint() {
   el.textContent = 'Syncs every ' + label + ' (' + slots.join(', ') + (1440 / iv > 6 ? ', ...' : '') + ').';
 }
 
+let currentFwVer = '';
+let latestGhAsset = '';
+let latestGhTag = '';
+let latestGhCmp = 0;
+
+function parseSemver(v) {
+  const m = String(v || '').trim().replace(/^v/i, '').match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!m) return null;
+  return [parseInt(m[1] || '0', 10), parseInt(m[2] || '0', 10), parseInt(m[3] || '0', 10)];
+}
+
+function compareSemver(a, b) {
+  const pa = parseSemver(a), pb = parseSemver(b);
+  if (!pa || !pb) return 0;
+  for (let i = 0; i < 3; ++i) {
+    if (pa[i] !== pb[i]) return pa[i] > pb[i] ? 1 : -1;
+  }
+  return 0;
+}
+
+function refreshInstallBtn() {
+  const btn = document.getElementById('ghInstallBtn');
+  const force = document.getElementById('ghForce').checked;
+  const canInstall = !!latestGhAsset && (latestGhCmp > 0 || force);
+  btn.disabled = !canInstall;
+  btn.style.opacity = canInstall ? '1' : '.5';
+  btn.textContent = latestGhCmp > 0 ? ('Install ' + latestGhTag) : (force ? ('Reinstall ' + (latestGhTag || 'Latest')) : 'Up to date');
+}
+
 function updateBadges(d) {
   document.getElementById('modeBadge').textContent = d.mode + ' (' + d.ip + ')';
-  if (d.fw_slot) {
-    document.getElementById('fwBadge').textContent = (d.fw_version || 'v0.1') + ' (' + d.fw_slot + ')';
+  if (d.fw_version) {
+    currentFwVer = d.fw_version;
+    const vStr = currentFwVer.startsWith('v') ? currentFwVer : ('v' + currentFwVer);
+    document.getElementById('fwBadge').textContent = vStr + (d.fw_slot ? (' · ' + d.fw_slot) : '');
+    const built = d.fw_build_date ? (' · built ' + d.fw_build_date) : '';
+    document.getElementById('fwInstalled').textContent = vStr + (d.fw_slot ? (' (slot ' + d.fw_slot + ')') : '') + built;
   }
   const bb = document.getElementById('batBadge');
   if (typeof d.battery_percent === 'number' && d.battery_percent >= 0) {
@@ -467,7 +507,7 @@ async function loadAll() {
     document.getElementById('ssid').value = d.wifi_ssid || '';
     passSaved = !!d.wifi_password_set;
     document.getElementById('pass').placeholder = passSaved ? 'Saved (leave blank to keep)' : 'Wi-Fi password';
-    setTzValue(d.timezone || 'MST7');
+    setTzValue(d.timezone || 'PDT7');
     const hh = String(d.sync_hour ?? 5).padStart(2,'0');
     const mm = String(d.sync_minute ?? 0).padStart(2,'0');
     document.getElementById('syncTime').value = hh + ':' + mm;
@@ -478,6 +518,7 @@ async function loadAll() {
     cals = (d.calendars || []).map(x => ({ name: x.name||'', url: x.url||'', color: x.color||'black', enabled: x.enabled!==false }));
     renderCals();
     showSyncSummary(d);
+    if (d.mode === 'Wi-Fi') checkGithubOta(true);
   } catch (e) {
     setStatus('Failed to load settings: ' + e, 'err');
   }
@@ -600,26 +641,35 @@ function setOtaStatus(msg, cls) {
   el.className = 'status' + (cls ? ' ' + cls : '');
 }
 
-let latestGhAsset = '';
-let latestGhTag = '';
-
-async function checkGithubOta() {
+async function checkGithubOta(silent) {
   const repo = document.getElementById('ghRepo').value.trim() || 'ckwcfm/note4c';
-  setOtaStatus('Checking GitHub Releases for ' + repo + '...', '');
+  if (!silent) setOtaStatus('Checking GitHub Releases for ' + repo + '...', '');
   try {
     const r = await fetch('/api/ota-check?repo=' + encodeURIComponent(repo));
     const d = await r.json();
     if (!r.ok || !d.ok) {
       latestGhAsset = '';
-      setOtaStatus('Check failed: ' + (d.error || r.status), 'err');
+      latestGhTag = '';
+      latestGhCmp = 0;
+      refreshInstallBtn();
+      if (!silent) setOtaStatus('Check failed: ' + (d.error || r.status), 'err');
       return;
     }
     latestGhTag = d.tag || '';
     latestGhAsset = d.asset_url || '';
+    latestGhCmp = compareSemver(latestGhTag, currentFwVer);
+    refreshInstallBtn();
+    const curLabel = currentFwVer.startsWith('v') ? currentFwVer : ('v' + currentFwVer);
     const kb = d.size ? (' (' + (d.size / 1024).toFixed(1) + ' KB)') : '';
-    setOtaStatus('Latest release: ' + latestGhTag + kb + '. Click Install Latest to update.', 'ok');
+    if (latestGhCmp > 0) {
+      setOtaStatus('Update available: ' + latestGhTag + kb + ' (installed: ' + curLabel + '). Click Install to update.', 'ok');
+    } else if (latestGhCmp === 0) {
+      setOtaStatus('Up to date! You are already running ' + curLabel + '.', 'ok');
+    } else {
+      setOtaStatus('Installed firmware (' + curLabel + ') is newer than latest GitHub release (' + latestGhTag + ').', 'ok');
+    }
   } catch (e) {
-    setOtaStatus('Check error: ' + e, 'err');
+    if (!silent) setOtaStatus('Check error: ' + e, 'err');
   }
 }
 
@@ -825,6 +875,8 @@ std::string WebUiServer::build_status_json(bool include_config) {
     out += json_escape(state_.mac_address);
     out += ",\"fw_version\":";
     out += json_escape(state_.fw_version);
+    out += ",\"fw_build_date\":";
+    out += json_escape(state_.fw_build_date);
     out += ",\"fw_slot\":";
     out += json_escape(state_.fw_slot);
     out += ",\"battery_percent\":";

@@ -21,6 +21,7 @@ struct WebRuntimeState {
     std::string ip_address;
     std::string mac_address;
     std::string fw_version;
+    std::string fw_build_date;
     std::string fw_slot;
     std::string status_message;
     int battery_percent = -1;

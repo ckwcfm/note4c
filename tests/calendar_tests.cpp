@@ -73,6 +73,11 @@ void test_timezone_and_dates() {
     const int64_t jul15_noon_utc = days_from_civil({2026, 7, 15}) * 86400LL + 18 * 3600;
     const auto loc_jul = mt.utc_to_local(jul15_noon_utc);
     CHECK(loc_jul.year == 2026 && loc_jul.month == 7 && loc_jul.day == 15 && loc_jul.hour == 12);
+
+    // Vancouver permanent UTC-7 (PDT7) stays -07:00 in both November and July
+    const TzRule yvr = TzRule::parse_posix("PDT7");
+    CHECK(yvr.utc_to_local(nov25_noon_utc).hour == 12);
+    CHECK(yvr.utc_to_local(jul15_noon_utc).hour == 11);
 }
 
 void test_ics_3day_streaming_rrule_and_overrides() {

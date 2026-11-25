@@ -317,7 +317,8 @@ extern "C" void app_main() {
     SemaphoreHandle_t state_mutex = xSemaphoreCreateMutex();
     static WebRuntimeState web_state;
     web_state.mac_address = board.sta_mac();
-    web_state.fw_version = app_desc ? (std::string(app_desc->version) + " " + app_desc->date) : "0.1.0";
+    web_state.fw_version = app_desc ? app_desc->version : "0.2.0";
+    web_state.fw_build_date = app_desc ? app_desc->date : "";
     web_state.fw_slot = running_part ? running_part->label : "unknown";
     const bool loaded = storage.load(web_state.config);
     {

@@ -62,7 +62,7 @@ struct CalendarConfig {
 
     std::string wifi_ssid;
     std::string wifi_password;
-    std::string timezone = "MST7";
+    std::string timezone = "PDT7";
     uint8_t sync_hour = 5;
     uint8_t sync_minute = 0;
     uint16_t sync_interval_minutes = 1440; // 1440 = once a day

@@ -277,7 +277,7 @@ bool TzRule::lookup_iana(std::string_view tzid, TzRule& out) {
         {"US/Arizona", "MST7"},
         {"US Mountain Standard Time", "MST7"},
         {"America/Los_Angeles", "PST8PDT,M3.2.0,M11.1.0"},
-        {"America/Vancouver", "PST8PDT,M3.2.0,M11.1.0"},
+        {"America/Vancouver", "PDT7"},
         {"US/Pacific", "PST8PDT,M3.2.0,M11.1.0"},
         {"Pacific Standard Time", "PST8PDT,M3.2.0,M11.1.0"},
         {"America/Anchorage", "AKST9AKDT,M3.2.0,M11.1.0"},

@@ -29,7 +29,12 @@ jobs:
         run: |
           . /opt/esp/idf/export.sh
           cd firmware
-          idf.py -DIDF_TARGET=esp32s3 build
+          VER="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            idf.py -DIDF_TARGET=esp32s3 -DPROJECT_VER="${VER}" build
+          else
+            idf.py -DIDF_TARGET=esp32s3 build
+          fi
           mkdir -p ../release-assets
           cp build/note4c_framework.bin ../release-assets/note4c_framework.bin
           (cd ../release-assets && sha256sum note4c_framework.bin > SHA256SUMS.txt)
