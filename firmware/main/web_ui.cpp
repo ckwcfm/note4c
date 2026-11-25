@@ -336,11 +336,20 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
 
   <div class="card">
     <h2>Firmware Update (OTA) <span class="badge" id="fwBadge">...</span></h2>
-    <p class="help" style="margin:0 0 10px">Upload a compiled <code>note4c_framework.bin</code> file over Wi-Fi. Your Wi-Fi and calendar settings are preserved.</p>
-    <div class="row" style="align-items:stretch">
-      <input id="otaFile" type="file" accept=".bin,application/octet-stream" style="padding:7px;border:1px solid #d4d4d8;border-radius:8px;background:#fafaf9">
-      <button class="btn btn-primary" id="otaBtn" onclick="uploadOta()" style="flex:0 0 auto">Upload &amp; Update</button>
+    <label for="ghRepo">GitHub Releases Update</label>
+    <div class="row" style="margin-bottom:8px">
+      <input id="ghRepo" type="text" value="ckwcfm/note4c" maxlength="100" placeholder="owner/repo">
+      <button class="btn btn-ghost" id="ghCheckBtn" onclick="checkGithubOta()" style="flex:0 0 auto">Check Release</button>
+      <button class="btn btn-accent" id="ghInstallBtn" onclick="installGithubOta()" style="flex:0 0 auto">Install Latest</button>
     </div>
+    <details style="margin-top:8px">
+      <summary>Or upload a local .bin file manually</summary>
+      <p class="help">Upload a compiled <code>note4c_framework.bin</code> over Wi-Fi. Wi-Fi and calendar settings are preserved.</p>
+      <div class="row" style="align-items:stretch;margin-top:6px">
+        <input id="otaFile" type="file" accept=".bin,application/octet-stream" style="padding:7px;border:1px solid #d4d4d8;border-radius:8px;background:#fafaf9">
+        <button class="btn btn-primary" id="otaBtn" onclick="uploadOta()" style="flex:0 0 auto">Upload &amp; Update</button>
+      </div>
+    </details>
     <div id="otaBarWrap" style="display:none;margin-top:10px;background:#e4e4e7;border-radius:999px;height:10px;overflow:hidden">
       <div id="otaBar" style="height:100%;width:0%;background:var(--red);transition:width .15s"></div>
     </div>
@@ -591,6 +600,87 @@ function setOtaStatus(msg, cls) {
   el.className = 'status' + (cls ? ' ' + cls : '');
 }
 
+let latestGhAsset = '';
+let latestGhTag = '';
+
+async function checkGithubOta() {
+  const repo = document.getElementById('ghRepo').value.trim() || 'ckwcfm/note4c';
+  setOtaStatus('Checking GitHub Releases for ' + repo + '...', '');
+  try {
+    const r = await fetch('/api/ota-check?repo=' + encodeURIComponent(repo));
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      latestGhAsset = '';
+      setOtaStatus('Check failed: ' + (d.error || r.status), 'err');
+      return;
+    }
+    latestGhTag = d.tag || '';
+    latestGhAsset = d.asset_url || '';
+    const kb = d.size ? (' (' + (d.size / 1024).toFixed(1) + ' KB)') : '';
+    setOtaStatus('Latest release: ' + latestGhTag + kb + '. Click Install Latest to update.', 'ok');
+  } catch (e) {
+    setOtaStatus('Check error: ' + e, 'err');
+  }
+}
+
+async function installGithubOta() {
+  const repo = document.getElementById('ghRepo').value.trim() || 'ckwcfm/note4c';
+  const label = latestGhTag ? (latestGhTag + ' from ' + repo) : ('latest release from ' + repo);
+  if (!confirm('Download and install ' + label + ' over Wi-Fi and reboot NOTE4C?')) return;
+  document.getElementById('ghInstallBtn').disabled = true;
+  document.getElementById('otaBarWrap').style.display = 'block';
+  document.getElementById('otaBar').style.width = '5%';
+  setOtaStatus('Starting GitHub OTA download (do not unplug power)...', '');
+  try {
+    const r = await fetch('/api/ota-github', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ repo: repo, url: latestGhAsset })
+    });
+    const res = await r.json();
+    if (!r.ok || !res.ok) {
+      document.getElementById('ghInstallBtn').disabled = false;
+      setOtaStatus('OTA start failed: ' + (res.error || r.status), 'err');
+      return;
+    }
+    pollOtaStatus();
+  } catch (e) {
+    document.getElementById('ghInstallBtn').disabled = false;
+    setOtaStatus('OTA error: ' + e, 'err');
+  }
+}
+
+async function pollOtaStatus() {
+  for (let i = 0; i < 120; ++i) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const r = await fetch('/api/status');
+      const d = await r.json();
+      if (d.ota_total > 0) {
+        const pct = Math.min(100, Math.round((d.ota_written / d.ota_total) * 100));
+        document.getElementById('otaBar').style.width = pct + '%';
+        setOtaStatus((d.ota_status || 'Downloading...') + ' ' + pct + '% (' + Math.round(d.ota_written / 1024) + ' / ' + Math.round(d.ota_total / 1024) + ' KB)', '');
+      } else if (d.ota_status) {
+        setOtaStatus(d.ota_status, d.ota_failed ? 'err' : (d.ota_reboot ? 'ok' : ''));
+      }
+      if (d.ota_reboot) {
+        document.getElementById('otaBar').style.width = '100%';
+        setOtaStatus(d.ota_status || 'OTA complete! Rebooting into new firmware...', 'ok');
+        return;
+      }
+      if (!d.ota_active && d.ota_failed) {
+        document.getElementById('ghInstallBtn').disabled = false;
+        setOtaStatus(d.ota_status || 'GitHub OTA failed.', 'err');
+        return;
+      }
+    } catch (_) {
+      setOtaStatus('NOTE4C is rebooting into the new firmware! Refresh in ~10 seconds.', 'ok');
+      return;
+    }
+  }
+  document.getElementById('ghInstallBtn').disabled = false;
+}
+
 function uploadOta() {
   const input = document.getElementById('otaFile');
   if (!input.files || !input.files.length) {
@@ -668,11 +758,20 @@ void WebUiServer::touch_activity() {
     last_activity_ms_.store(now_ms(), std::memory_order_release);
 }
 
+bool WebUiServer::take_github_ota_request(std::string& out_repo, std::string& out_url) {
+    if (!github_ota_requested_.exchange(false, std::memory_order_acq_rel)) return false;
+    xSemaphoreTake(mutex_, portMAX_DELAY);
+    out_repo = gh_ota_repo_;
+    out_url = gh_ota_url_;
+    xSemaphoreGive(mutex_);
+    return true;
+}
+
 bool WebUiServer::start() {
     if (server_) return true;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 10;
-    cfg.stack_size = 8192;
+    cfg.max_uri_handlers = 14;
+    cfg.stack_size = 10240;
     cfg.lru_purge_enable = true;
     if (httpd_start(&server_, &cfg) != ESP_OK) {
         server_ = nullptr;
@@ -696,6 +795,8 @@ bool WebUiServer::start() {
     reg("/api/status", HTTP_GET, handle_status);
     reg("/api/sleep", HTTP_POST, handle_sleep);
     reg("/api/ota", HTTP_POST, handle_ota);
+    reg("/api/ota-check", HTTP_GET, handle_ota_check);
+    reg("/api/ota-github", HTTP_POST, handle_ota_github);
     httpd_register_err_handler(server_, HTTPD_404_NOT_FOUND, handle_404);
 
     had_http_activity_.store(false, std::memory_order_release);
@@ -734,6 +835,18 @@ std::string WebUiServer::build_status_json(bool include_config) {
     out += state_.charging ? "true" : "false";
     out += ",\"syncing\":";
     out += state_.syncing ? "true" : "false";
+    out += ",\"ota_active\":";
+    out += ota_in_progress() ? "true" : "false";
+    out += ",\"ota_written\":";
+    out += std::to_string(state_.ota_progress.written.load(std::memory_order_acquire));
+    out += ",\"ota_total\":";
+    out += std::to_string(state_.ota_progress.total.load(std::memory_order_acquire));
+    out += ",\"ota_status\":";
+    out += json_escape(state_.ota_status);
+    out += ",\"ota_failed\":";
+    out += state_.ota_failed ? "true" : "false";
+    out += ",\"ota_reboot\":";
+    out += state_.ota_reboot ? "true" : "false";
     out += ",\"status_message\":";
     out += json_escape(state_.status_message);
 
@@ -1078,6 +1191,86 @@ esp_err_t WebUiServer::handle_ota(httpd_req_t* req) {
                   R"({"ok":true,"slot":"%s","bytes":%u,"rebooting":true})",
                   update->label, static_cast<unsigned>(total_written));
     return send_json(req, resp);
+}
+
+esp_err_t WebUiServer::handle_ota_check(httpd_req_t* req) {
+    auto* self = static_cast<WebUiServer*>(req->user_ctx);
+    self->touch_activity();
+
+    std::string repo = kDefaultGitHubRepo;
+    char qbuf[160]{};
+    if (httpd_req_get_url_query_str(req, qbuf, sizeof(qbuf)) == ESP_OK) {
+        char val[128]{};
+        if (httpd_query_key_value(qbuf, "repo", val, sizeof(val)) == ESP_OK) {
+            // Decode %2F -> /
+            std::string dec;
+            for (size_t i = 0; val[i]; ++i) {
+                if (val[i] == '%' && val[i + 1] == '2' && (val[i + 2] == 'F' || val[i + 2] == 'f')) {
+                    dec.push_back('/');
+                    i += 2;
+                } else {
+                    dec.push_back(val[i]);
+                }
+            }
+            if (!dec.empty()) repo = dec;
+        }
+    }
+
+    const GitHubReleaseInfo info = check_github_release(repo);
+    if (!info.ok) {
+        return send_json(req, "{\"ok\":false,\"error\":" + json_escape(info.error) + "}");
+    }
+    std::string out = "{\"ok\":true,\"tag\":";
+    out += json_escape(info.tag);
+    out += ",\"asset_url\":";
+    out += json_escape(info.asset_url);
+    out += ",\"size\":";
+    out += std::to_string(info.asset_size);
+    out.push_back('}');
+    return send_json(req, out);
+}
+
+esp_err_t WebUiServer::handle_ota_github(httpd_req_t* req) {
+    auto* self = static_cast<WebUiServer*>(req->user_ctx);
+    self->touch_activity();
+
+    if (self->ota_in_progress()) {
+        return send_json(req, R"({"ok":false,"error":"OTA already in progress"})", "409 Conflict");
+    }
+    std::string repo = kDefaultGitHubRepo;
+    std::string url;
+    if (req->content_len > 0 && req->content_len <= 1024) {
+        std::string body(static_cast<size_t>(req->content_len), '\0');
+        int rec = 0;
+        while (rec < req->content_len) {
+            const int r = httpd_req_recv(req, body.data() + rec, req->content_len - rec);
+            if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            if (r <= 0) break;
+            rec += r;
+        }
+        JsonVal root;
+        JsonParser p(body);
+        if (p.parse(root) && root.type == JsonVal::Type::Object) {
+            if (const auto* f = root.get("repo"); f && f->type == JsonVal::Type::String && !f->s.empty())
+                repo = f->s;
+            if (const auto* f = root.get("url"); f && f->type == JsonVal::Type::String)
+                url = f->s;
+        }
+    }
+
+    xSemaphoreTake(self->mutex_, portMAX_DELAY);
+    self->gh_ota_repo_ = repo;
+    self->gh_ota_url_ = url;
+    self->state_.ota_failed = false;
+    self->state_.ota_reboot = false;
+    self->state_.ota_status = "Starting GitHub OTA...";
+    self->state_.ota_progress.written.store(0, std::memory_order_release);
+    self->state_.ota_progress.total.store(0, std::memory_order_release);
+    self->state_.ota_progress.active.store(true, std::memory_order_release);
+    xSemaphoreGive(self->mutex_);
+
+    self->github_ota_requested_.store(true, std::memory_order_release);
+    return send_json(req, R"({"ok":true})");
 }
 
 esp_err_t WebUiServer::handle_404(httpd_req_t* req, httpd_err_code_t) {

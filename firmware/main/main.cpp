@@ -33,13 +33,18 @@ struct CalendarEngine {
         : display(port, RefreshPolicy{200, 1000, 1500}) {}
 };
 
-enum class NetJobKind : uint8_t { None = 0, Sync, StartManage, ReconnectWifi };
+enum class NetJobKind : uint8_t { None = 0, Sync, StartManage, ReconnectWifi, GithubOta };
 
 struct NetJob {
     NetJobKind kind = NetJobKind::None;
     bool keep_wifi = false;
     bool force_ap = false;
     std::string detail;
+    std::string extra;
+
+    NetJob() = default;
+    NetJob(NetJobKind k, bool kw, bool fa, std::string d = {}, std::string e = {})
+        : kind(k), keep_wifi(kw), force_ap(fa), detail(std::move(d)), extra(std::move(e)) {}
 };
 
 struct AppCtx {
@@ -199,6 +204,48 @@ void execute_reconnect_wifi(AppCtx& app) {
     }
 }
 
+void execute_github_ota(AppCtx& app, const std::string& repo, const std::string& asset_url) {
+    std::string dl_url = asset_url;
+    std::string tag;
+    if (dl_url.empty()) {
+        xSemaphoreTake(app.mutex, portMAX_DELAY);
+        app.web_state->ota_status = "Checking latest GitHub release...";
+        xSemaphoreGive(app.mutex);
+
+        const GitHubReleaseInfo info = check_github_release(repo.empty() ? kDefaultGitHubRepo : repo);
+        if (!info.ok) {
+            xSemaphoreTake(app.mutex, portMAX_DELAY);
+            app.web_state->ota_failed = true;
+            app.web_state->ota_status = "GitHub check failed: " + info.error;
+            app.web_state->ota_progress.active.store(false, std::memory_order_release);
+            xSemaphoreGive(app.mutex);
+            return;
+        }
+        dl_url = info.asset_url;
+        tag = info.tag;
+    }
+
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    app.web_state->ota_status = tag.empty() ? "Downloading firmware from GitHub..."
+                                            : ("Downloading " + tag + " from GitHub...");
+    xSemaphoreGive(app.mutex);
+
+    std::string slot, err;
+    const bool ok = install_github_ota(dl_url, app.web_state->ota_progress, slot, err);
+
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    if (ok) {
+        app.web_state->ota_failed = false;
+        app.web_state->ota_reboot = true;
+        app.web_state->ota_status = "Verified & written to " + slot + "! Rebooting...";
+    } else {
+        app.web_state->ota_failed = true;
+        app.web_state->ota_reboot = false;
+        app.web_state->ota_status = "OTA failed: " + err;
+    }
+    xSemaphoreGive(app.mutex);
+}
+
 void net_worker_task(void* arg) {
     auto& app = *static_cast<AppCtx*>(arg);
     for (;;) {
@@ -217,6 +264,8 @@ void net_worker_task(void* arg) {
                 execute_start_manage(app, job.force_ap, job.detail);
             } else if (job.kind == NetJobKind::ReconnectWifi) {
                 execute_reconnect_wifi(app);
+            } else if (job.kind == NetJobKind::GithubOta) {
+                execute_github_ota(app, job.detail, job.extra);
             }
             app.worker_busy.store(false, std::memory_order_release);
         }
@@ -424,12 +473,19 @@ extern "C" void app_main() {
         // Handle Web UI actions regardless of whether e-paper is on Manage or Calendar screen!
         bool force_sleep_now = false;
         if (web.running()) {
-            if (web.take_reboot_request()) {
+            xSemaphoreTake(state_mutex, portMAX_DELAY);
+            const bool gh_ota_reboot = web_state.ota_reboot;
+            xSemaphoreGive(state_mutex);
+
+            std::string gh_repo, gh_url;
+            if (web.take_reboot_request() || gh_ota_reboot) {
                 ESP_LOGI(kTag, "OTA complete; rebooting into new firmware slot...");
-                vTaskDelay(pdMS_TO_TICKS(900));
+                vTaskDelay(pdMS_TO_TICKS(1500));
                 web.stop();
                 wifi.stop();
                 esp_restart();
+            } else if (web.take_github_ota_request(gh_repo, gh_url)) {
+                enqueue_job(app, {NetJobKind::GithubOta, true, false, gh_repo, gh_url});
             } else if (web.take_wifi_changed()) {
                 enqueue_job(app, {NetJobKind::ReconnectWifi, true, false, ""});
             } else if (web.take_sync_request()) {

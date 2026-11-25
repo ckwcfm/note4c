@@ -1,5 +1,6 @@
 #pragma once
 #include "cal_storage.hpp"
+#include "github_ota.hpp"
 #include "ics_fetcher.hpp"
 #include "wifi_portal.hpp"
 #include "esp_http_server.h"
@@ -25,6 +26,10 @@ struct WebRuntimeState {
     int battery_percent = -1;
     uint16_t battery_mv = 0;
     bool charging = false;
+    OtaProgress ota_progress;
+    std::string ota_status;
+    bool ota_failed = false;
+    bool ota_reboot = false;
 };
 
 class WebUiServer {
@@ -40,7 +45,11 @@ public:
     bool take_sleep_request() { return sleep_requested_.exchange(false, std::memory_order_acq_rel); }
     bool take_wifi_changed() { return wifi_changed_.exchange(false, std::memory_order_acq_rel); }
     bool take_reboot_request() { return reboot_requested_.exchange(false, std::memory_order_acq_rel); }
-    bool ota_in_progress() const { return ota_active_.load(std::memory_order_acquire); }
+    bool take_github_ota_request(std::string& out_repo, std::string& out_url);
+    bool ota_in_progress() const {
+        return ota_active_.load(std::memory_order_acquire) ||
+               state_.ota_progress.active.load(std::memory_order_acquire);
+    }
     bool had_http_activity() const { return had_http_activity_.load(std::memory_order_acquire); }
     Millis last_activity_ms() const { return last_activity_ms_.load(std::memory_order_acquire); }
     void touch_activity();
@@ -54,6 +63,8 @@ private:
     static esp_err_t handle_status(httpd_req_t* req);
     static esp_err_t handle_sleep(httpd_req_t* req);
     static esp_err_t handle_ota(httpd_req_t* req);
+    static esp_err_t handle_ota_check(httpd_req_t* req);
+    static esp_err_t handle_ota_github(httpd_req_t* req);
     static esp_err_t handle_404(httpd_req_t* req, httpd_err_code_t err);
 
     std::string build_status_json(bool include_config);
@@ -68,6 +79,9 @@ private:
     std::atomic<bool> sleep_requested_{false};
     std::atomic<bool> wifi_changed_{false};
     std::atomic<bool> reboot_requested_{false};
+    std::atomic<bool> github_ota_requested_{false};
+    std::string gh_ota_repo_;
+    std::string gh_ota_url_;
     std::atomic<bool> ota_active_{false};
     std::atomic<bool> had_http_activity_{false};
     std::atomic<Millis> last_activity_ms_{0};
