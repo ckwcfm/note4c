@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/LazyYoun/youn-ink-fourcolor-firmware.git",
+  "branch": "2bp",
+  "revision": "8907e59300fde3b77a385dba9f3070b0de17b4c8",
+  "reviewed": "2026-11-14",
+  "source_sha256": {
+    "firmware/main/boards/zectrix-s3-epaper-4.2/custom_lcd_display.cc": "7f3d89713c6d20fbef90028eb82475b837819fd8da87423e606c886992ddfd5a",
+    "firmware/main/boards/zectrix-s3-epaper-4.2/config.h": "8c2a0f72b46435b4e6d726e53a5ac997295e4dec10a9bacd1d6387a11a9b2957",
+    "firmware/main/boards/zectrix-s3-epaper-4.2/board_power_bsp.cc": "159a170efe93e3bc76a5de4b3e6a47709f411717fbc5f0d4647707324a45f5c6",
+    "firmware/main/idf_component.yml": "93e6e940c5f80d3d50364bb1a5b30f5e51c9e7bbaf2b74533fc5cfa23956ff38",
+    "firmware/dependencies.lock": "049acffed5f2c8c8ae740821cda15a5ba309e9d17d1a5d791d7aa28f4da73ae2",
+    "firmware/main/rawdraw/rawdraw.h": "9db91d8d30fae2d2c83ce30b5e34c64cd00315001f5a0276c6a66c141ee78f43",
+    "firmware/main/rawdraw/framebuffer.h": "d24944743995c53906c9781c73417d8c812ef3ebfc3fc62e9d30eca9d94fdb93",
+    "firmware/main/ui/rawdraw_ui_manager.h": "3648c51ab388d14e3d4f7a4ebb46d164084ecefb344aed33d22b744f4d7b3dc0"
+  }
+}

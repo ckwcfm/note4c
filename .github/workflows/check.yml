@@ -1,0 +1,23 @@
+name: Build and test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build-host -DNOTE4C_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build-host --parallel 2
+      - run: ctest --test-dir build-host --output-on-failure
+      - run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+  firmware:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          cd firmware
+          idf.py -DIDF_TARGET=esp32s3 build

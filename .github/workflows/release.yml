@@ -1,0 +1,48 @@
+name: Release OTA Firmware
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build-host -DNOTE4C_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build-host --parallel 2
+      - run: ctest --test-dir build-host --output-on-failure
+      - run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  build-and-release:
+    needs: host
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ESP32-S3 NOTE4C firmware
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          cd firmware
+          idf.py -DIDF_TARGET=esp32s3 build
+          mkdir -p ../release-assets
+          cp build/note4c_framework.bin ../release-assets/note4c_framework.bin
+          (cd ../release-assets && sha256sum note4c_framework.bin > SHA256SUMS.txt)
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: note4c-firmware
+          path: release-assets/*
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-assets/note4c_framework.bin
+            release-assets/SHA256SUMS.txt

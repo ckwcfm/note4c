@@ -1,0 +1,9 @@
+menu "NOTE4C framework"
+config NOTE4C_ENABLE_DEEP_SLEEP
+    bool "Enable idle deep sleep (requires hardware validation)"
+    default n
+    help
+        Enter deep sleep after 120 seconds idle, with GPIO0/GPIO18 low wake.
+        GPIO39 Up is not an RTC wake pin. Battery latch is held high.
+        Keep disabled until wake, latch and battery operation are validated.
+endmenu
