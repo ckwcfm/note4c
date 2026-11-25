@@ -241,10 +241,24 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
   <header>
     <h1>NOTE4C Calendar</h1>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <a href="#otaCard" class="badge" id="updBadge" style="display:none;background:var(--red);color:#fff;text-decoration:none">Update!</a>
       <span class="badge" id="batBadge" style="display:none"></span>
       <span class="badge" id="modeBadge">Loading...</span>
     </div>
   </header>
+
+  <div id="updBanner" class="card" style="display:none;background:#fefce8;border:2px solid var(--red);padding:12px 14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:700;color:var(--red)" id="updTitle">New firmware update available!</div>
+        <div class="help" style="margin:2px 0 0;color:var(--ink)" id="updDetail"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-accent btn-sm" onclick="jumpAndInstallOta()">Update Now</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('updBanner').style.display='none'" title="Dismiss">&times;</button>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <h2>Wi-Fi Connection <button class="btn btn-ghost btn-sm" onclick="scanWifi()">Scan</button></h2>
@@ -335,7 +349,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
     <div id="statusBox" class="status">Ready.</div>
   </div>
 
-  <div class="card">
+  <div class="card" id="otaCard">
     <h2>Firmware Update (OTA) <span class="badge" id="fwBadge">...</span></h2>
     <div id="fwCurrent" style="background:#fafaf9;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:13px">
       Installed: <b id="fwInstalled">...</b>
@@ -641,6 +655,26 @@ function setOtaStatus(msg, cls) {
   el.className = 'status' + (cls ? ' ' + cls : '');
 }
 
+function jumpAndInstallOta() {
+  document.getElementById('otaCard').scrollIntoView({ behavior: 'smooth' });
+  installGithubOta();
+}
+
+function setUpdateNotice(show, latest, cur, kb) {
+  const banner = document.getElementById('updBanner');
+  const badge = document.getElementById('updBadge');
+  if (show) {
+    document.getElementById('updTitle').textContent = 'Update available: ' + latest;
+    document.getElementById('updDetail').textContent = 'Installed: ' + cur + ' -> Latest: ' + latest + kb;
+    banner.style.display = 'block';
+    badge.textContent = 'Update ' + latest;
+    badge.style.display = 'inline-block';
+  } else {
+    banner.style.display = 'none';
+    badge.style.display = 'none';
+  }
+}
+
 async function checkGithubOta(silent) {
   const repo = document.getElementById('ghRepo').value.trim() || 'ckwcfm/note4c';
   if (!silent) setOtaStatus('Checking GitHub Releases for ' + repo + '...', '');
@@ -652,6 +686,7 @@ async function checkGithubOta(silent) {
       latestGhTag = '';
       latestGhCmp = 0;
       refreshInstallBtn();
+      setUpdateNotice(false);
       if (!silent) setOtaStatus('Check failed: ' + (d.error || r.status), 'err');
       return;
     }
@@ -662,10 +697,13 @@ async function checkGithubOta(silent) {
     const curLabel = currentFwVer.startsWith('v') ? currentFwVer : ('v' + currentFwVer);
     const kb = d.size ? (' (' + (d.size / 1024).toFixed(1) + ' KB)') : '';
     if (latestGhCmp > 0) {
+      setUpdateNotice(true, latestGhTag, curLabel, kb);
       setOtaStatus('Update available: ' + latestGhTag + kb + ' (installed: ' + curLabel + '). Click Install to update.', 'ok');
     } else if (latestGhCmp === 0) {
+      setUpdateNotice(false);
       setOtaStatus('Up to date! You are already running ' + curLabel + '.', 'ok');
     } else {
+      setUpdateNotice(false);
       setOtaStatus('Installed firmware (' + curLabel + ') is newer than latest GitHub release (' + latestGhTag + ').', 'ok');
     }
   } catch (e) {
