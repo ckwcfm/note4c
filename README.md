@@ -32,15 +32,21 @@ ESP-IDF v6.0 / C++17 firmware and host-testable core for the **ZECTRIX NOTE4C PC
   anchor time in the web UI.
 - **Battery-first deep sleep:** Holds the battery power latch (`GPIO17`), wakes on
   schedule or **Confirm** / **Down** button press, and sleeps automatically on battery.
-- **Wireless OTA updates:** Upload a new `note4c_framework.bin` directly from the
-  web management page into the inactive A/B OTA slot (`ota_0` ↔ `ota_1`) with
-  ESP32-S3 + project header and image hash verification.
+- **Wireless OTA updates:** Automatic GitHub Release update check & notification
+  banner in the web management UI, one-click update from the web page or directly
+  from the on-device Manage screen (`Up`), plus manual `.bin` upload into the
+  inactive A/B OTA slot (`ota_0` ↔ `ota_1`) with ESP32-S3 + project header and
+  image hash verification.
 
 ## Controls
 
-- **Confirm (short):** Sync calendars now (and return to 3-day calendar view).
-- **Down (short):** Open the Manage screen (shows LAN IP & Wi-Fi MAC).
+- **Confirm (short):** On calendar view, sync calendars now; on Manage screen,
+  exit back to the 3-day calendar without forcing a sync.
+- **Down (short):** Open the Manage screen (shows LAN IP, Wi-Fi MAC, and current
+  firmware version & slot).
 - **Down (long):** Force the `NOTE4C-Setup` Wi-Fi setup hotspot.
+- **Up (short):** On Manage screen, check GitHub Releases and install a newer
+  firmware update directly on-device.
 - **Up (long):** Retry e-paper refresh after a display fault.
 
 ## Run host tests & simulator (no hardware required)

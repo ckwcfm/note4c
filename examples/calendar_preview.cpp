@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     CalendarRenderer renderer;
     Frame f_agenda, f_manage;
     renderer.draw_agenda(st, days, f_agenda);
-    renderer.draw_manage(true, "NOTE4C-Setup", "http://192.168.4.1", "AA:BB:CC:DD:EE:FF", "First-time setup", f_manage);
+    renderer.draw_manage(false, "HomeWiFi", "http://192.168.1.42", "AA:BB:CC:DD:EE:FF", "v0.2.1 (ota_0)", "Auto-sleep after 10 min on battery", f_manage);
 
     write_ppm(f_agenda, out_dir + "/calendar_agenda.ppm");
     write_ppm(f_manage, out_dir + "/calendar_manage.ppm");

@@ -205,7 +205,7 @@ void test_renderer_3day_smoke() {
     CHECK(counts[static_cast<int>(Color::Yellow)] > 500);
 
     Frame mf;
-    renderer.draw_manage(true, "NOTE4C-Setup", "http://192.168.4.1", "AA:BB:CC:DD:EE:FF", "", mf);
+    renderer.draw_manage(true, "NOTE4C-Setup", "http://192.168.4.1", "AA:BB:CC:DD:EE:FF", "v0.2.1 (ota_0)", "", mf);
     CHECK(mf != f);
 }
 

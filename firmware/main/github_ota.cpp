@@ -4,6 +4,7 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -187,6 +188,30 @@ esp_err_t ota_http_cb(esp_http_client_event_t* evt) {
 }
 
 } // namespace
+
+int compare_semver(std::string_view a, std::string_view b) {
+    auto parse = [](std::string_view s) -> std::array<int, 3> {
+        std::array<int, 3> v{0, 0, 0};
+        if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) s.remove_prefix(1);
+        size_t pos = 0;
+        for (int idx = 0; idx < 3 && pos < s.size(); ++idx) {
+            int num = 0;
+            while (pos < s.size() && std::isdigit(static_cast<unsigned char>(s[pos]))) {
+                num = num * 10 + (s[pos++] - '0');
+            }
+            v[static_cast<size_t>(idx)] = num;
+            if (pos < s.size() && s[pos] == '.') ++pos;
+            else break;
+        }
+        return v;
+    };
+    const auto pa = parse(a);
+    const auto pb = parse(b);
+    for (size_t i = 0; i < 3; ++i) {
+        if (pa[i] != pb[i]) return pa[i] > pb[i] ? 1 : -1;
+    }
+    return 0;
+}
 
 GitHubReleaseInfo check_github_release(std::string_view repo) {
     GitHubReleaseInfo info;

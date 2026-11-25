@@ -33,7 +33,7 @@ struct CalendarEngine {
         : display(port, RefreshPolicy{200, 1000, 1500}) {}
 };
 
-enum class NetJobKind : uint8_t { None = 0, Sync, StartManage, ReconnectWifi, GithubOta };
+enum class NetJobKind : uint8_t { None = 0, Sync, StartManage, ReconnectWifi, GithubOta, DeviceOta };
 
 struct NetJob {
     NetJobKind kind = NetJobKind::None;
@@ -58,13 +58,20 @@ struct AppCtx {
     NetJob pending_job{};
     std::atomic<bool> worker_busy{false};
     std::atomic<bool> sync_result_ready{false};
+    std::atomic<bool> redraw_agenda_ready{false};
     std::atomic<bool> manage_screen_ready{false};
+    std::atomic<bool> msg_screen_ready{false};
     std::atomic<bool> in_manage_mode{false};
 
     bool manage_ap = false;
     std::string manage_ssid;
     std::string manage_url;
     std::string manage_detail;
+
+    std::string msg_title;
+    std::string msg_line1;
+    std::string msg_line2;
+    Color msg_accent = Color::Black;
 };
 
 void refresh_battery_locked(AppCtx& app) {
@@ -246,6 +253,72 @@ void execute_github_ota(AppCtx& app, const std::string& repo, const std::string&
     xSemaphoreGive(app.mutex);
 }
 
+void execute_device_ota(AppCtx& app) {
+    if (!app.wifi->is_sta_connected()) {
+        xSemaphoreTake(app.mutex, portMAX_DELAY);
+        app.manage_detail = "Connect to Wi-Fi first to check updates";
+        xSemaphoreGive(app.mutex);
+        app.manage_screen_ready.store(true, std::memory_order_release);
+        return;
+    }
+
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    const std::string cur_ver = app.web_state->fw_version;
+    app.web_state->ota_failed = false;
+    app.web_state->ota_reboot = false;
+    app.web_state->ota_status = "Checking GitHub for updates...";
+    xSemaphoreGive(app.mutex);
+
+    const GitHubReleaseInfo info = check_github_release(kDefaultGitHubRepo);
+    if (!info.ok) {
+        xSemaphoreTake(app.mutex, portMAX_DELAY);
+        app.manage_detail = "Update check: " + info.error;
+        app.web_state->ota_failed = true;
+        app.web_state->ota_status = app.manage_detail;
+        xSemaphoreGive(app.mutex);
+        app.manage_screen_ready.store(true, std::memory_order_release);
+        return;
+    }
+
+    if (compare_semver(info.tag, cur_ver) <= 0) {
+        xSemaphoreTake(app.mutex, portMAX_DELAY);
+        app.manage_detail = "Already up to date (v" + cur_ver + ")";
+        app.web_state->ota_status = app.manage_detail;
+        xSemaphoreGive(app.mutex);
+        app.manage_screen_ready.store(true, std::memory_order_release);
+        return;
+    }
+
+    // Newer firmware found -> show updating screen on e-paper and install!
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    app.msg_title = "UPDATING FIRMWARE";
+    app.msg_line1 = "v" + cur_ver + " -> " + info.tag + " (" + kDefaultGitHubRepo + ")";
+    app.msg_line2 = "Downloading & verifying over Wi-Fi... do not unplug.";
+    app.msg_accent = Color::Red;
+    app.web_state->ota_status = "Downloading " + info.tag + "...";
+    xSemaphoreGive(app.mutex);
+    app.msg_screen_ready.store(true, std::memory_order_release);
+
+    std::string slot, err;
+    const bool ok = install_github_ota(info.asset_url, app.web_state->ota_progress, slot, err);
+
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    if (ok) {
+        app.web_state->ota_failed = false;
+        app.web_state->ota_reboot = true;
+        app.web_state->ota_status = "Installed " + info.tag + " to " + slot + "! Rebooting...";
+    } else {
+        app.web_state->ota_failed = true;
+        app.web_state->ota_reboot = false;
+        app.manage_detail = "Update failed: " + err;
+        app.web_state->ota_status = app.manage_detail;
+    }
+    xSemaphoreGive(app.mutex);
+    if (!ok) {
+        app.manage_screen_ready.store(true, std::memory_order_release);
+    }
+}
+
 void net_worker_task(void* arg) {
     auto& app = *static_cast<AppCtx*>(arg);
     for (;;) {
@@ -266,6 +339,8 @@ void net_worker_task(void* arg) {
                 execute_reconnect_wifi(app);
             } else if (job.kind == NetJobKind::GithubOta) {
                 execute_github_ota(app, job.detail, job.extra);
+            } else if (job.kind == NetJobKind::DeviceOta) {
+                execute_device_ota(app);
             }
             app.worker_busy.store(false, std::memory_order_release);
         }
@@ -393,6 +468,11 @@ extern "C" void app_main() {
             idle_since_ms = now;
             if (b == Button::Up && ev->press == Press::Long) {
                 engine.display.retry(now);
+            } else if (b == Button::Up && ev->press == Press::Short) {
+                if (app.in_manage_mode.load(std::memory_order_acquire) &&
+                    !syncing_now && !has_pending_job(app)) {
+                    enqueue_job(app, {NetJobKind::DeviceOta, true, false, ""});
+                }
             } else if (b == Button::Down && ev->press == Press::Long) {
                 enqueue_job(app, {NetJobKind::StartManage, false, true, "Forced setup hotspot"});
             } else if (b == Button::Down && ev->press == Press::Short) {
@@ -400,9 +480,35 @@ extern "C" void app_main() {
                     enqueue_job(app, {NetJobKind::StartManage, false, false, "Auto-sleep after 10 min on battery"});
                 }
             } else if (b == Button::Confirm && ev->press == Press::Short) {
-                app.in_manage_mode.store(false, std::memory_order_release);
-                enqueue_job(app, {NetJobKind::Sync, true, false, ""});
+                if (app.in_manage_mode.load(std::memory_order_acquire)) {
+                    // Exit Manage screen without forcing a sync if we already have synced data
+                    app.in_manage_mode.store(false, std::memory_order_release);
+                    xSemaphoreTake(state_mutex, portMAX_DELAY);
+                    const bool have_data = web_state.has_synced;
+                    xSemaphoreGive(state_mutex);
+                    if (have_data) {
+                        app.redraw_agenda_ready.store(true, std::memory_order_release);
+                    } else {
+                        enqueue_job(app, {NetJobKind::Sync, true, false, ""});
+                    }
+                } else {
+                    enqueue_job(app, {NetJobKind::Sync, true, false, ""});
+                }
             }
+        }
+
+        // Render temporary status message screen (e.g. "UPDATING FIRMWARE")
+        if (app.msg_screen_ready.exchange(false, std::memory_order_acq_rel)) {
+            xSemaphoreTake(state_mutex, portMAX_DELAY);
+            const std::string t = app.msg_title;
+            const std::string l1 = app.msg_line1;
+            const std::string l2 = app.msg_line2;
+            const Color acc = app.msg_accent;
+            xSemaphoreGive(state_mutex);
+
+            engine.renderer.draw_message(t, l1, l2, acc, engine.render_frame);
+            engine.display.submit(engine.render_frame, now);
+            idle_since_ms = now;
         }
 
         // Render completed background Manage screen (non-blocking submit to DisplayScheduler)
@@ -412,16 +518,19 @@ extern "C" void app_main() {
             const std::string ssid = app.manage_ssid;
             const std::string url = app.manage_url;
             const std::string mac = web_state.mac_address;
+            const std::string ver = "v" + web_state.fw_version + " (" + web_state.fw_slot + ")";
             const std::string detail = app.manage_detail;
             xSemaphoreGive(state_mutex);
 
-            engine.renderer.draw_manage(is_ap, ssid, url, mac, detail, engine.render_frame);
+            engine.renderer.draw_manage(is_ap, ssid, url, mac, ver, detail, engine.render_frame);
             engine.display.submit(engine.render_frame, now);
             idle_since_ms = now;
         }
 
-        // Render completed background Sync result (non-blocking submit to DisplayScheduler)
-        if (app.sync_result_ready.exchange(false, std::memory_order_acq_rel)) {
+        // Render completed background Sync result OR cached agenda redraw on Manage Exit
+        const bool is_fresh_sync = app.sync_result_ready.exchange(false, std::memory_order_acq_rel);
+        const bool is_cached_redraw = !is_fresh_sync && app.redraw_agenda_ready.exchange(false, std::memory_order_acq_rel);
+        if (is_fresh_sync || is_cached_redraw) {
             xSemaphoreTake(state_mutex, portMAX_DELAY);
             const SyncReport rep = web_state.last_sync;
             const CalendarConfig cfg = web_state.config;
@@ -435,14 +544,14 @@ extern "C" void app_main() {
                     cfg.has_wifi() ? ("Could not join: " + cfg.wifi_ssid) : "No Wi-Fi configured yet.",
                     "Press Down button to open setup & management web UI.",
                     Color::Red, engine.render_frame);
-                next_sleep_sec = 3600;
+                if (is_fresh_sync) next_sleep_sec = 3600;
             } else if (!rep.time_ok) {
                 engine.renderer.draw_message(
                     "TIME SYNC FAILED",
                     "Connected to Wi-Fi, but SNTP time sync failed.",
                     "Press Confirm to retry or Down to manage settings.",
                     Color::Red, engine.render_frame);
-                next_sleep_sec = 3600;
+                if (is_fresh_sync) next_sleep_sec = 3600;
             } else {
                 CalendarViewStatus st;
                 st.today = rep.today;
@@ -458,34 +567,42 @@ extern "C" void app_main() {
                     st.error_text = ebuf;
                 }
                 engine.renderer.draw_agenda(st, rep.days, engine.render_frame);
-                next_sleep_sec = CalendarConfig::seconds_until_next_sync(
-                    rep.local_hour, rep.local_minute, rep.local_second,
-                    cfg.sync_hour, cfg.sync_minute, cfg.sync_interval_minutes);
-                synced_this_boot = true;
+                if (is_fresh_sync) {
+                    next_sleep_sec = CalendarConfig::seconds_until_next_sync(
+                        rep.local_hour, rep.local_minute, rep.local_second,
+                        cfg.sync_hour, cfg.sync_minute, cfg.sync_interval_minutes);
+                    synced_this_boot = true;
+                }
             }
 
             engine.display.submit(engine.render_frame, now);
-            last_sync_ms = now;
+            if (is_fresh_sync) {
+                last_sync_ms = now;
+                ESP_LOGI(kTag, "Background sync rendered; next scheduled sync in %lu s",
+                         static_cast<unsigned long>(next_sleep_sec));
+            } else {
+                ESP_LOGI(kTag, "Returned to cached 3-day calendar (no sync)");
+            }
             idle_since_ms = now;
-            ESP_LOGI(kTag, "Background sync rendered; next scheduled sync in %lu s",
-                     static_cast<unsigned long>(next_sleep_sec));
+        }
+
+        // Reboot after verified OTA (wait until any active e-paper refresh completes safely)
+        xSemaphoreTake(state_mutex, portMAX_DELAY);
+        const bool gh_ota_reboot = web_state.ota_reboot;
+        xSemaphoreGive(state_mutex);
+        if (!engine.display.busy() && (gh_ota_reboot || (web.running() && web.take_reboot_request()))) {
+            ESP_LOGI(kTag, "OTA complete; rebooting into new firmware slot...");
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            web.stop();
+            wifi.stop();
+            esp_restart();
         }
 
         // Handle Web UI actions regardless of whether e-paper is on Manage or Calendar screen!
         bool force_sleep_now = false;
         if (web.running()) {
-            xSemaphoreTake(state_mutex, portMAX_DELAY);
-            const bool gh_ota_reboot = web_state.ota_reboot;
-            xSemaphoreGive(state_mutex);
-
             std::string gh_repo, gh_url;
-            if (web.take_reboot_request() || gh_ota_reboot) {
-                ESP_LOGI(kTag, "OTA complete; rebooting into new firmware slot...");
-                vTaskDelay(pdMS_TO_TICKS(1500));
-                web.stop();
-                wifi.stop();
-                esp_restart();
-            } else if (web.take_github_ota_request(gh_repo, gh_url)) {
+            if (web.take_github_ota_request(gh_repo, gh_url)) {
                 enqueue_job(app, {NetJobKind::GithubOta, true, false, gh_repo, gh_url});
             } else if (web.take_wifi_changed()) {
                 enqueue_job(app, {NetJobKind::ReconnectWifi, true, false, ""});

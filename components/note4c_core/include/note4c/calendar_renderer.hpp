@@ -30,6 +30,7 @@ public:
                      std::string_view ssid,
                      std::string_view url,
                      std::string_view mac,
+                     std::string_view version,
                      std::string_view detail,
                      Frame& frame) const;
 

@@ -283,49 +283,54 @@ void CalendarRenderer::draw_manage(bool is_ap_mode,
                                    std::string_view ssid,
                                    std::string_view url,
                                    std::string_view mac,
+                                   std::string_view version,
                                    std::string_view detail,
                                    Frame& f) const {
     f.clear(Color::White);
     const Color banner = is_ap_mode ? Color::Red : Color::Black;
-    f.rect(0, 0, Frame::width, 44, banner);
-    f.rect(0, 44, Frame::width, 4, Color::Yellow);
+    f.rect(0, 0, Frame::width, 42, banner);
+    f.rect(0, 42, Frame::width, 4, Color::Yellow);
 
     const std::string_view title = is_ap_mode ? "WIFI & CALENDAR SETUP" : "MANAGE CALENDARS";
-    font::draw_text(f, 16, 13, title, Color::White, 2, true);
+    font::draw_text(f, 16, 12, title, Color::White, 2, true);
 
     if (is_ap_mode) {
-        font::draw_text(f, 16, 60, "1. Connect your phone or computer to Wi-Fi:", Color::Black, 1, true);
-        f.rect(16, 76, Frame::width - 32, 30, Color::Yellow);
-        font::draw_text(f, 26, 83, ssid, Color::Black, 2, true);
+        font::draw_text(f, 16, 56, "1. Connect your phone or computer to Wi-Fi:", Color::Black, 1, true);
+        f.rect(16, 72, Frame::width - 32, 28, Color::Yellow);
+        font::draw_text(f, 26, 78, ssid, Color::Black, 2, true);
 
-        font::draw_text(f, 16, 118, "2. Open this address in your browser:", Color::Black, 1, true);
-        f.rect(16, 134, Frame::width - 32, 30, Color::Black);
-        font::draw_text(f, 26, 141, url, Color::White, 2, true);
+        font::draw_text(f, 16, 110, "2. Open this address in your browser:", Color::Black, 1, true);
+        f.rect(16, 126, Frame::width - 32, 28, Color::Black);
+        font::draw_text(f, 26, 132, url, Color::White, 2, true);
 
-        font::draw_text(f, 16, 176, "Add your Wi-Fi, .ics calendar URLs, and colors.", Color::Black, 1, false);
+        font::draw_text(f, 16, 164, "Add your Wi-Fi, .ics calendar URLs, and colors.", Color::Black, 1, false);
     } else {
-        font::draw_text(f, 16, 60, "Connected to Wi-Fi:", Color::Black, 1, true);
-        font::draw_text(f, 140, 60, ssid, Color::Red, 1, true);
+        font::draw_text(f, 16, 56, "Connected to Wi-Fi:", Color::Black, 1, true);
+        font::draw_text(f, 140, 56, ssid, Color::Red, 1, true);
 
-        font::draw_text(f, 16, 84, "Open this page in your browser to manage calendars:", Color::Black, 1, true);
-        f.rect(16, 102, Frame::width - 32, 36, Color::Yellow);
-        font::draw_text(f, 26, 111, url, Color::Black, 2, true);
+        font::draw_text(f, 16, 78, "Open this page in your browser to manage calendars:", Color::Black, 1, true);
+        f.rect(16, 94, Frame::width - 32, 34, Color::Yellow);
+        font::draw_text(f, 26, 102, url, Color::Black, 2, true);
 
-        font::draw_text(f, 16, 152, "Add/remove .ics subscriptions, pick Black/Red/Yellow", Color::Black, 1, false);
-        font::draw_text(f, 16, 170, "colors, change Wi-Fi, or click Save & Sync.", Color::Black, 1, false);
+        font::draw_text(f, 16, 140, "Add/remove .ics subscriptions, pick Black/Red/Yellow", Color::Black, 1, false);
+        font::draw_text(f, 16, 156, "colors, change Wi-Fi, or install firmware updates.", Color::Black, 1, false);
     }
 
     if (!mac.empty()) {
-        font::draw_text(f, 16, 200, "Wi-Fi MAC:", Color::Black, 1, true);
-        font::draw_text(f, 90, 200, mac, Color::Black, 1, true);
+        font::draw_text(f, 16, 186, "Wi-Fi MAC:", Color::Black, 1, true);
+        font::draw_text(f, 92, 186, mac, Color::Black, 1, true);
+    }
+    if (!version.empty()) {
+        font::draw_text(f, 16, 204, "Firmware:", Color::Black, 1, true);
+        font::draw_text(f, 92, 204, version, Color::Black, 1, true);
     }
 
     if (!detail.empty()) {
-        font::draw_text(f, 16, 226, font::truncate_text(detail, Frame::width - 32, 1, true), Color::Red, 1, true);
+        font::draw_text(f, 16, 230, font::truncate_text(detail, Frame::width - 32, 1, true), Color::Red, 1, true);
     }
 
     f.rect(0, 264, Frame::width, 1, Color::Black);
-    font::draw_text(f, 16, 274, "[OK] Sync & Exit   [Hold DN] Setup Hotspot", Color::Black, 1, true);
+    font::draw_text(f, 16, 274, "[OK] Exit   [UP] Update   [Hold DN] Hotspot", Color::Black, 1, true);
 }
 
 void CalendarRenderer::draw_message(std::string_view title,
