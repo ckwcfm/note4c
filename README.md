@@ -45,12 +45,11 @@ ESP-IDF v6.0 / C++17 firmware and host-testable core for the **ZECTRIX NOTE4C PC
   exit back to the 3-day calendar without forcing a sync.
 - **Confirm (hold 3 s, then release):** Restart the device cleanly (LED blinks
   rapidly once armed; also available via **Restart Device** in the web UI).
-- **Down (short):** Open the Manage screen (shows LAN IP, Wi-Fi MAC, and current
-  firmware version & slot).
+- **Down (short):** Open the Manage screen (shows LAN IP, Wi-Fi MAC, current
+  firmware version & slot, and automatically checks GitHub for updates).
 - **Down (long):** Force the `NOTE4C-Setup` Wi-Fi setup hotspot.
-- **Up (short):** On Manage screen, check GitHub Releases and install a newer
-  firmware update directly on-device.
-- **Up (long):** Retry e-paper refresh after a display fault.
+- **Up (long):** On Manage screen, start on-device GitHub OTA update with live
+  on-screen progress bar; otherwise retry e-paper refresh after a display fault.
 
 ## Run host tests & simulator (no hardware required)
 

@@ -28,6 +28,7 @@ struct WebRuntimeState {
     uint16_t battery_mv = 0;
     bool charging = false;
     OtaProgress ota_progress;
+    std::string ota_subtitle;
     std::string ota_status;
     bool ota_failed = false;
     bool ota_reboot = false;

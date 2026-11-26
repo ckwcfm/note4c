@@ -1248,6 +1248,15 @@ esp_err_t WebUiServer::handle_ota(httpd_req_t* req) {
     ESP_LOGI(kTag, "Starting OTA write to '%s' @ 0x%08lx (%d bytes)",
              update->label, static_cast<unsigned long>(update->address), req->content_len);
 
+    xSemaphoreTake(self->mutex_, portMAX_DELAY);
+    self->state_.ota_subtitle = "Local .bin upload -> " + std::string(update->label);
+    self->state_.ota_status = "Uploading firmware...";
+    self->state_.ota_failed = false;
+    self->state_.ota_reboot = false;
+    self->state_.ota_progress.written.store(0, std::memory_order_release);
+    self->state_.ota_progress.total.store(static_cast<size_t>(req->content_len), std::memory_order_release);
+    xSemaphoreGive(self->mutex_);
+
     std::vector<uint8_t> buf(4096);
     std::vector<uint8_t> header_buf;
     header_buf.reserve(512);
@@ -1300,6 +1309,7 @@ esp_err_t WebUiServer::handle_ota(httpd_req_t* req) {
                 return send_json(req, R"({"ok":false,"error":"Flash write error; previous firmware untouched"})", "500 Internal Server Error");
             }
             total_written += header_buf.size();
+            self->state_.ota_progress.written.store(total_written, std::memory_order_release);
             header_buf.clear();
             continue;
         }
@@ -1310,6 +1320,7 @@ esp_err_t WebUiServer::handle_ota(httpd_req_t* req) {
             return send_json(req, R"({"ok":false,"error":"Flash write error; previous firmware untouched"})", "500 Internal Server Error");
         }
         total_written += static_cast<size_t>(r);
+        self->state_.ota_progress.written.store(total_written, std::memory_order_release);
     }
 
     if (!header_checked) {
@@ -1331,6 +1342,10 @@ esp_err_t WebUiServer::handle_ota(httpd_req_t* req) {
 
     ESP_LOGI(kTag, "OTA complete (%u bytes) -> next boot slot '%s'",
              static_cast<unsigned>(total_written), update->label);
+    xSemaphoreTake(self->mutex_, portMAX_DELAY);
+    self->state_.ota_status = "Verified & installed to " + std::string(update->label) + "!";
+    self->state_.ota_reboot = true;
+    xSemaphoreGive(self->mutex_);
     self->reboot_requested_.store(true, std::memory_order_release);
 
     char resp[160];

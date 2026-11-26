@@ -60,16 +60,18 @@ int main(int argc, char** argv) {
     };
 
     CalendarRenderer renderer;
-    Frame f_agenda, f_agenda_7d, f_manage;
+    Frame f_agenda, f_agenda_7d, f_manage, f_ota;
     st.display_days = 3;
     renderer.draw_agenda(st, days, f_agenda);
     st.display_days = 7;
     renderer.draw_agenda(st, days, f_agenda_7d);
-    renderer.draw_manage(false, "HomeWiFi", "http://192.168.1.42", "AA:BB:CC:DD:EE:FF", "v0.2.2 (ota_0)", "Auto-sleep after 10 min on battery", f_manage);
+    renderer.draw_manage(false, "HomeWiFi", "http://192.168.1.42", "AA:BB:CC:DD:EE:FF", "v0.2.3 (ota_0)", "Update v0.2.4 available! Hold UP to install", f_manage);
+    renderer.draw_ota_progress("UPDATING FIRMWARE", "v0.2.2 -> v0.2.3 (ckwcfm/note4c)", "Downloading... 616 / 1120 KB", 55, f_ota);
 
     write_ppm(f_agenda, out_dir + "/calendar_agenda.ppm");
     write_ppm(f_agenda_7d, out_dir + "/calendar_agenda_7d.ppm");
     write_ppm(f_manage, out_dir + "/calendar_manage.ppm");
+    write_ppm(f_ota, out_dir + "/calendar_ota.ppm");
     std::cout << "Wrote calendar previews to " << out_dir << "\n";
     return 0;
 }

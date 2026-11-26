@@ -67,7 +67,10 @@ struct AppCtx {
     bool manage_ap = false;
     std::string manage_ssid;
     std::string manage_url;
+    std::string manage_ver_suffix;
     std::string manage_detail;
+    std::string cached_ota_tag;
+    std::string cached_ota_url;
 
     std::string msg_title;
     std::string msg_line1;
@@ -163,6 +166,7 @@ void execute_start_manage(AppCtx& app, bool force_ap, const std::string& detail)
 
     xSemaphoreTake(app.mutex, portMAX_DELAY);
     refresh_battery_locked(app);
+    const std::string cur_ver = app.web_state->fw_version;
     app.web_state->is_ap_mode = ap_mode;
     app.web_state->mode_label = ap_mode ? "Setup AP" : "Wi-Fi";
     app.web_state->ip_address = app.wifi->ip_address();
@@ -170,11 +174,31 @@ void execute_start_manage(AppCtx& app, bool force_ap, const std::string& detail)
     app.manage_ap = ap_mode;
     app.manage_ssid = ssid;
     app.manage_url = url;
+    app.manage_ver_suffix.clear();
     app.manage_detail = note;
+    app.cached_ota_tag.clear();
+    app.cached_ota_url.clear();
     xSemaphoreGive(app.mutex);
 
     app.web->start();
     app.in_manage_mode.store(true, std::memory_order_release);
+
+    // Auto-check GitHub Releases when opening Manage screen on Wi-Fi so any new update is shown immediately
+    if (!ap_mode && app.wifi->is_sta_connected()) {
+        const GitHubReleaseInfo info = check_github_release(kDefaultGitHubRepo);
+        if (info.ok) {
+            xSemaphoreTake(app.mutex, portMAX_DELAY);
+            if (compare_semver(info.tag, cur_ver) > 0) {
+                app.cached_ota_tag = info.tag;
+                app.cached_ota_url = info.asset_url;
+                app.manage_detail = "Update " + info.tag + " available! Hold UP to install";
+            } else {
+                app.manage_ver_suffix = " - latest";
+            }
+            xSemaphoreGive(app.mutex);
+        }
+    }
+
     app.manage_screen_ready.store(true, std::memory_order_release);
 }
 
@@ -213,14 +237,20 @@ void execute_reconnect_wifi(AppCtx& app) {
 }
 
 void execute_github_ota(AppCtx& app, const std::string& repo, const std::string& asset_url) {
+    const std::string use_repo = repo.empty() ? kDefaultGitHubRepo : repo;
     std::string dl_url = asset_url;
     std::string tag;
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    const std::string cur_ver = app.web_state->fw_version;
+    app.web_state->ota_subtitle = "v" + cur_ver + " (" + use_repo + ")";
+    xSemaphoreGive(app.mutex);
+
     if (dl_url.empty()) {
         xSemaphoreTake(app.mutex, portMAX_DELAY);
         app.web_state->ota_status = "Checking latest GitHub release...";
         xSemaphoreGive(app.mutex);
 
-        const GitHubReleaseInfo info = check_github_release(repo.empty() ? kDefaultGitHubRepo : repo);
+        const GitHubReleaseInfo info = check_github_release(use_repo);
         if (!info.ok) {
             xSemaphoreTake(app.mutex, portMAX_DELAY);
             app.web_state->ota_failed = true;
@@ -234,6 +264,9 @@ void execute_github_ota(AppCtx& app, const std::string& repo, const std::string&
     }
 
     xSemaphoreTake(app.mutex, portMAX_DELAY);
+    if (!tag.empty()) {
+        app.web_state->ota_subtitle = "v" + cur_ver + " -> " + tag + " (" + use_repo + ")";
+    }
     app.web_state->ota_status = tag.empty() ? "Downloading firmware from GitHub..."
                                             : ("Downloading " + tag + " from GitHub...");
     xSemaphoreGive(app.mutex);
@@ -265,49 +298,54 @@ void execute_device_ota(AppCtx& app) {
 
     xSemaphoreTake(app.mutex, portMAX_DELAY);
     const std::string cur_ver = app.web_state->fw_version;
+    std::string target_tag = app.cached_ota_tag;
+    std::string target_url = app.cached_ota_url;
     app.web_state->ota_failed = false;
     app.web_state->ota_reboot = false;
     app.web_state->ota_status = "Checking GitHub for updates...";
     xSemaphoreGive(app.mutex);
 
-    const GitHubReleaseInfo info = check_github_release(kDefaultGitHubRepo);
-    if (!info.ok) {
-        xSemaphoreTake(app.mutex, portMAX_DELAY);
-        app.manage_detail = "Update check: " + info.error;
-        app.web_state->ota_failed = true;
-        app.web_state->ota_status = app.manage_detail;
-        xSemaphoreGive(app.mutex);
-        app.manage_screen_ready.store(true, std::memory_order_release);
-        return;
+    if (target_url.empty() || target_tag.empty()) {
+        const GitHubReleaseInfo info = check_github_release(kDefaultGitHubRepo);
+        if (!info.ok) {
+            xSemaphoreTake(app.mutex, portMAX_DELAY);
+            app.manage_detail = "Update check: " + info.error;
+            app.web_state->ota_failed = true;
+            app.web_state->ota_status = app.manage_detail;
+            xSemaphoreGive(app.mutex);
+            app.manage_screen_ready.store(true, std::memory_order_release);
+            return;
+        }
+        if (compare_semver(info.tag, cur_ver) <= 0) {
+            xSemaphoreTake(app.mutex, portMAX_DELAY);
+            app.manage_ver_suffix = " - latest";
+            app.manage_detail = "Already up to date (v" + cur_ver + ")";
+            app.web_state->ota_status = app.manage_detail;
+            xSemaphoreGive(app.mutex);
+            app.manage_screen_ready.store(true, std::memory_order_release);
+            return;
+        }
+        target_tag = info.tag;
+        target_url = info.asset_url;
     }
 
-    if (compare_semver(info.tag, cur_ver) <= 0) {
-        xSemaphoreTake(app.mutex, portMAX_DELAY);
-        app.manage_detail = "Already up to date (v" + cur_ver + ")";
-        app.web_state->ota_status = app.manage_detail;
-        xSemaphoreGive(app.mutex);
-        app.manage_screen_ready.store(true, std::memory_order_release);
-        return;
-    }
-
-    // Newer firmware found -> show updating screen on e-paper and install!
+    // Newer firmware found -> trigger live e-paper progress bar and install!
     xSemaphoreTake(app.mutex, portMAX_DELAY);
-    app.msg_title = "UPDATING FIRMWARE";
-    app.msg_line1 = "v" + cur_ver + " -> " + info.tag + " (" + kDefaultGitHubRepo + ")";
-    app.msg_line2 = "Downloading & verifying over Wi-Fi... do not unplug.";
-    app.msg_accent = Color::Red;
-    app.web_state->ota_status = "Downloading " + info.tag + "...";
+    app.web_state->ota_subtitle = "v" + cur_ver + " -> " + target_tag + " (" + kDefaultGitHubRepo + ")";
+    app.web_state->ota_status = "Downloading " + target_tag + "...";
+    app.web_state->ota_progress.written.store(0, std::memory_order_release);
+    app.web_state->ota_progress.total.store(0, std::memory_order_release);
+    app.web_state->ota_progress.active.store(true, std::memory_order_release);
     xSemaphoreGive(app.mutex);
-    app.msg_screen_ready.store(true, std::memory_order_release);
 
     std::string slot, err;
-    const bool ok = install_github_ota(info.asset_url, app.web_state->ota_progress, slot, err);
+    const bool ok = install_github_ota(target_url, app.web_state->ota_progress, slot, err);
 
     xSemaphoreTake(app.mutex, portMAX_DELAY);
     if (ok) {
         app.web_state->ota_failed = false;
         app.web_state->ota_reboot = true;
-        app.web_state->ota_status = "Installed " + info.tag + " to " + slot + "! Rebooting...";
+        app.web_state->ota_status = "Installed " + target_tag + " to " + slot + "! Rebooting...";
     } else {
         app.web_state->ota_failed = true;
         app.web_state->ota_reboot = false;
@@ -452,6 +490,9 @@ extern "C" void app_main() {
     bool ok_holding = false;
     Millis ok_hold_start = 0;
     bool ok_reboot_armed = false;
+    bool ota_ui_active = false;
+    int ota_last_pct = -1;
+    bool ota_100_drawn = false;
     for (;;) {
         const auto now = now_ms();
         engine.display.tick(now);
@@ -499,11 +540,13 @@ extern "C" void app_main() {
             if (!ev || web.ota_in_progress()) continue;
             idle_since_ms = now;
             if (b == Button::Up && ev->press == Press::Long) {
-                engine.display.retry(now);
-            } else if (b == Button::Up && ev->press == Press::Short) {
-                if (app.in_manage_mode.load(std::memory_order_acquire) &&
-                    !syncing_now && !has_pending_job(app)) {
+                if (engine.display.faulted()) {
+                    engine.display.retry(now);
+                } else if (app.in_manage_mode.load(std::memory_order_acquire) &&
+                           !syncing_now && !has_pending_job(app)) {
                     enqueue_job(app, {NetJobKind::DeviceOta, true, false, ""});
+                } else {
+                    engine.display.retry(now);
                 }
             } else if (b == Button::Down && ev->press == Press::Long) {
                 enqueue_job(app, {NetJobKind::StartManage, false, true, "Forced setup hotspot"});
@@ -550,13 +593,54 @@ extern "C" void app_main() {
             const std::string ssid = app.manage_ssid;
             const std::string url = app.manage_url;
             const std::string mac = web_state.mac_address;
-            const std::string ver = "v" + web_state.fw_version + " (" + web_state.fw_slot + ")";
+            const std::string ver = "v" + web_state.fw_version + " (" + web_state.fw_slot + ")" + app.manage_ver_suffix;
             const std::string detail = app.manage_detail;
             xSemaphoreGive(state_mutex);
 
             engine.renderer.draw_manage(is_ap, ssid, url, mac, ver, detail, engine.render_frame);
             engine.display.submit(engine.render_frame, now);
             idle_since_ms = now;
+        }
+
+        // Live e-paper OTA progress bar during any OTA update (Device Hold-UP, GitHub Web UI, or .bin upload)
+        xSemaphoreTake(state_mutex, portMAX_DELAY);
+        const bool gh_ota_reboot = web_state.ota_reboot;
+        const std::string ota_sub = web_state.ota_subtitle;
+        const std::string ota_st = web_state.ota_status;
+        xSemaphoreGive(state_mutex);
+
+        if (web.ota_in_progress()) {
+            const size_t w = web_state.ota_progress.written.load(std::memory_order_acquire);
+            const size_t t = web_state.ota_progress.total.load(std::memory_order_acquire);
+            const int pct = (t > 0) ? std::clamp(static_cast<int>((w * 100ULL) / t), 0, 99) : 0;
+            if (!ota_ui_active || (!engine.display.busy() && pct >= ota_last_pct + 15)) {
+                std::string line = ota_st;
+                if (t > 0) {
+                    char lbuf[64];
+                    std::snprintf(lbuf, sizeof(lbuf), "Downloading... %u / %u KB",
+                                  static_cast<unsigned>(w / 1024), static_cast<unsigned>(t / 1024));
+                    line = lbuf;
+                }
+                engine.renderer.draw_ota_progress("UPDATING FIRMWARE", ota_sub, line, pct, engine.render_frame);
+                engine.display.submit(engine.render_frame, now);
+                ota_ui_active = true;
+                ota_100_drawn = false;
+                ota_last_pct = pct;
+                idle_since_ms = now;
+            }
+        } else if (gh_ota_reboot && ota_ui_active && !ota_100_drawn) {
+            if (!engine.display.busy()) {
+                engine.renderer.draw_ota_progress("UPDATING FIRMWARE", ota_sub,
+                                                  ota_st.empty() ? "Verified! Rebooting..." : ota_st,
+                                                  100, engine.render_frame);
+                engine.display.submit(engine.render_frame, now);
+                ota_100_drawn = true;
+                idle_since_ms = now;
+            }
+        } else if (!gh_ota_reboot && ota_ui_active) {
+            ota_ui_active = false;
+            ota_last_pct = -1;
+            ota_100_drawn = false;
         }
 
         // Render completed background Sync result OR cached agenda redraw on Manage Exit
@@ -619,13 +703,12 @@ extern "C" void app_main() {
             idle_since_ms = now;
         }
 
-        // Reboot after verified OTA, Web UI Restart button, or 3s OK hold (after OK released & display idle)
-        xSemaphoreTake(state_mutex, portMAX_DELAY);
-        const bool gh_ota_reboot = web_state.ota_reboot;
-        xSemaphoreGive(state_mutex);
+        // Reboot after verified OTA (once 100% progress bar finishes refreshing), Web UI Restart, or 3s OK hold
+        const bool ota_ready_to_reboot = gh_ota_reboot && (!ota_ui_active || ota_100_drawn);
         const bool btn_reboot_ready = ok_reboot_armed && !board.pressed(Button::Confirm);
         if (!engine.display.busy() &&
-            (btn_reboot_ready || gh_ota_reboot || (web.running() && web.take_reboot_request()))) {
+            (btn_reboot_ready || ota_ready_to_reboot ||
+             (!gh_ota_reboot && web.running() && web.take_reboot_request()))) {
             ESP_LOGI(kTag, "Restarting NOTE4C...");
             vTaskDelay(pdMS_TO_TICKS(btn_reboot_ready ? 200 : 1200));
             web.stop();

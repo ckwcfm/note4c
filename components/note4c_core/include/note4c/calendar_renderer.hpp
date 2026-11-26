@@ -40,6 +40,12 @@ public:
                       std::string_view line2,
                       Color accent,
                       Frame& frame) const;
+
+    void draw_ota_progress(std::string_view title,
+                           std::string_view subtitle,
+                           std::string_view status_line,
+                           int percent,
+                           Frame& frame) const;
 };
 
 } // namespace note4c

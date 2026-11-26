@@ -224,8 +224,15 @@ void test_renderer_3day_smoke() {
     CHECK(f7 != f);
 
     Frame mf;
-    renderer.draw_manage(true, "NOTE4C-Setup", "http://192.168.4.1", "AA:BB:CC:DD:EE:FF", "v0.2.2 (ota_0)", "", mf);
+    renderer.draw_manage(true, "NOTE4C-Setup", "http://192.168.4.1", "AA:BB:CC:DD:EE:FF", "v0.2.3 (ota_0)", "", mf);
     CHECK(mf != f);
+
+    Frame ota0, ota55, ota100;
+    renderer.draw_ota_progress("UPDATING FIRMWARE", "v0.2.2 -> v0.2.3 (ckwcfm/note4c)", "Downloading... 0 / 1120 KB", 0, ota0);
+    renderer.draw_ota_progress("UPDATING FIRMWARE", "v0.2.2 -> v0.2.3 (ckwcfm/note4c)", "Downloading... 616 / 1120 KB", 55, ota55);
+    renderer.draw_ota_progress("UPDATING FIRMWARE", "v0.2.2 -> v0.2.3 (ckwcfm/note4c)", "Installed to ota_1! Rebooting...", 100, ota100);
+    CHECK(ota0 != ota55);
+    CHECK(ota55 != ota100);
 }
 
 void test_configurable_display_days() {

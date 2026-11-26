@@ -368,7 +368,7 @@ void CalendarRenderer::draw_manage(bool is_ap_mode,
     }
 
     f.rect(0, 264, Frame::width, 1, Color::Black);
-    font::draw_text(f, 16, 274, "[OK] Exit   [UP] Update   [Hold DN] Hotspot", Color::Black, 1, true);
+    font::draw_text(f, 12, 274, "[OK] Exit  [Hold UP] Update  [Hold DN] Hotspot", Color::Black, 1, true);
 }
 
 void CalendarRenderer::draw_message(std::string_view title,
@@ -386,6 +386,67 @@ void CalendarRenderer::draw_message(std::string_view title,
     }
     f.rect(0, 264, Frame::width, 1, Color::Black);
     font::draw_text(f, 16, 274, "[OK] Sync Now   [DN] Manage Web UI", Color::Black, 1, true);
+}
+
+void CalendarRenderer::draw_ota_progress(std::string_view title,
+                                         std::string_view subtitle,
+                                         std::string_view status_line,
+                                         int percent,
+                                         Frame& f) const {
+    f.clear(Color::White);
+    const int pct = std::clamp(percent, 0, 100);
+
+    // Header banner (Red + Yellow accent bar)
+    f.rect(0, 0, Frame::width, 42, Color::Red);
+    f.rect(0, 42, Frame::width, 4, Color::Yellow);
+    font::draw_text(f, 16, 12, title.empty() ? "UPDATING FIRMWARE" : title, Color::White, 2, true);
+
+    // Subtitle (e.g. "v0.2.2 -> v0.2.3 (ckwcfm/note4c)")
+    if (!subtitle.empty()) {
+        const std::string sub = font::truncate_text(subtitle, Frame::width - 32, 1, true);
+        const int sw = font::measure_text(sub, 1, true);
+        font::draw_text(f, (Frame::width - sw) / 2, 66, sub, Color::Black, 1, true);
+    }
+
+    // Large centered percentage readout
+    char pbuf[16];
+    std::snprintf(pbuf, sizeof(pbuf), "%d%%", pct);
+    const int pw = font::measure_text(pbuf, 3, true);
+    font::draw_text(f, (Frame::width - pw) / 2, 94, pbuf, pct >= 100 ? Color::Black : Color::Red, 3, true);
+
+    // Crisp 4-color progress bar frame (x=24..376, y=144..174)
+    constexpr int bx = 24;
+    constexpr int by = 144;
+    constexpr int bw = Frame::width - 48; // 352 px
+    constexpr int bh = 30;
+    f.rect(bx, by, bw, 2, Color::Black);
+    f.rect(bx, by + bh - 2, bw, 2, Color::Black);
+    f.rect(bx, by, 2, bh, Color::Black);
+    f.rect(bx + bw - 2, by, 2, bh, Color::Black);
+
+    const int inner_w = bw - 8;
+    const int inner_h = bh - 8;
+    const int fill_w = (inner_w * pct + 50) / 100;
+    if (fill_w > 0) {
+        f.rect(bx + 4, by + 4, fill_w, inner_h, Color::Red);
+        if (pct < 100 && fill_w >= 8) {
+            f.rect(bx + 4 + fill_w - 4, by + 4, 4, inner_h, Color::Yellow);
+        }
+    }
+
+    // Status / byte progress line
+    if (!status_line.empty()) {
+        const std::string st = font::truncate_text(status_line, Frame::width - 32, 1, true);
+        const int stw = font::measure_text(st, 1, true);
+        font::draw_text(f, (Frame::width - stw) / 2, 192, st, Color::Black, 1, true);
+    }
+
+    // Warning footer
+    f.rect(0, 264, Frame::width, 1, Color::Black);
+    const std::string_view warn = (pct >= 100) ? "Update verified! Rebooting NOTE4C..."
+                                               : "Do not unplug power or reset during update.";
+    const int ww = font::measure_text(warn, 1, true);
+    font::draw_text(f, (Frame::width - ww) / 2, 274, warn, Color::Red, 1, true);
 }
 
 } // namespace note4c
