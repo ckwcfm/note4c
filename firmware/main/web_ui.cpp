@@ -344,6 +344,49 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
   </div>
 
   <div class="card">
+    <h2>Display Settings</h2>
+    <div class="row">
+      <div>
+        <label for="titleMode">Event Title</label>
+        <select id="titleMode">
+          <option value="title">Show event title</option>
+          <option value="calendar">Calendar name only</option>
+          <option value="none">Hide title</option>
+        </select>
+      </div>
+      <div>
+        <label for="locationMode">Location / Address</label>
+        <select id="locationMode">
+          <option value="full">Full address</option>
+          <option value="short">Short (venue only)</option>
+          <option value="off">Hide location</option>
+        </select>
+      </div>
+      <div>
+        <label for="clockFmt">Clock Format</label>
+        <select id="clockFmt">
+          <option value="24">24-hour (14:00)</option>
+          <option value="12">12-hour (2:00p)</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:13px">
+      <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:var(--ink);font-weight:500;cursor:pointer">
+        <input type="checkbox" id="showEndTime" checked> Show end time
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:var(--ink);font-weight:500;cursor:pointer">
+        <input type="checkbox" id="hideEmptyDays"> Hide empty days
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:var(--ink);font-weight:500;cursor:pointer">
+        <input type="checkbox" id="hideAllDay"> Hide all-day events
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:var(--ink);font-weight:500;cursor:pointer">
+        <input type="checkbox" id="showFooter" checked> Show footer legend
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Subscribed Calendars <button class="btn btn-yel btn-sm" onclick="addCal()">+ Add Calendar</button></h2>
     <div id="calList"></div>
     <details>
@@ -551,6 +594,13 @@ async function loadAll() {
     const daySel = document.getElementById('displayDays');
     const dayVal = String(d.display_days ?? 3);
     daySel.value = [...daySel.options].some(o => o.value === dayVal) ? dayVal : '3';
+    document.getElementById('titleMode').value = d.title_mode || 'title';
+    document.getElementById('locationMode').value = d.location_mode || 'full';
+    document.getElementById('clockFmt').value = d.use_12h ? '12' : '24';
+    document.getElementById('showEndTime').checked = d.show_end_time !== false;
+    document.getElementById('hideEmptyDays').checked = !!d.hide_empty_days;
+    document.getElementById('hideAllDay').checked = !!d.hide_all_day;
+    document.getElementById('showFooter').checked = d.show_footer !== false;
     updateScheduleHint();
     cals = (d.calendars || []).map(x => ({ name: x.name||'', url: x.url||'', color: x.color||'black', enabled: x.enabled!==false }));
     renderCals();
@@ -610,6 +660,13 @@ async function saveConfig(andSync) {
     sync_minute: parseInt(t[1] || '0', 10),
     sync_interval_minutes: parseInt(document.getElementById('syncInterval').value || '1440', 10),
     display_days: parseInt(document.getElementById('displayDays').value || '3', 10),
+    title_mode: document.getElementById('titleMode').value || 'title',
+    location_mode: document.getElementById('locationMode').value || 'full',
+    use_12h: document.getElementById('clockFmt').value === '12',
+    show_end_time: document.getElementById('showEndTime').checked,
+    hide_empty_days: document.getElementById('hideEmptyDays').checked,
+    hide_all_day: document.getElementById('hideAllDay').checked,
+    show_footer: document.getElementById('showFooter').checked,
     calendars: cals.filter(c => c.url.trim().length > 0).map(c => ({
       name: c.name.trim() || 'Calendar',
       url: c.url.trim(),
@@ -990,6 +1047,20 @@ std::string WebUiServer::build_status_json(bool include_config) {
         out += std::to_string(state_.config.sync_interval_minutes);
         out += ",\"display_days\":";
         out += std::to_string(state_.config.display_days);
+        out += ",\"title_mode\":";
+        out += json_escape(title_mode_name(state_.config.title_mode));
+        out += ",\"location_mode\":";
+        out += json_escape(location_mode_name(state_.config.location_mode));
+        out += ",\"use_12h\":";
+        out += state_.config.use_12h ? "true" : "false";
+        out += ",\"show_end_time\":";
+        out += state_.config.show_end_time ? "true" : "false";
+        out += ",\"hide_empty_days\":";
+        out += state_.config.hide_empty_days ? "true" : "false";
+        out += ",\"hide_all_day\":";
+        out += state_.config.hide_all_day ? "true" : "false";
+        out += ",\"show_footer\":";
+        out += state_.config.show_footer ? "true" : "false";
         out += ",\"calendars\":[";
         for (size_t i = 0; i < state_.config.calendars.size(); ++i) {
             if (i > 0) out.push_back(',');
@@ -1158,6 +1229,27 @@ esp_err_t WebUiServer::handle_post_config(httpd_req_t* req) {
     }
     if (const auto* j = root.get("display_days"); j && j->type == JsonVal::Type::Number) {
         updated.display_days = static_cast<uint8_t>(j->n);
+    }
+    if (const auto* j = root.get("title_mode"); j && j->type == JsonVal::Type::String) {
+        updated.title_mode = parse_title_mode(j->s);
+    }
+    if (const auto* j = root.get("location_mode"); j && j->type == JsonVal::Type::String) {
+        updated.location_mode = parse_location_mode(j->s);
+    }
+    if (const auto* j = root.get("use_12h"); j && j->type == JsonVal::Type::Bool) {
+        updated.use_12h = j->b;
+    }
+    if (const auto* j = root.get("show_end_time"); j && j->type == JsonVal::Type::Bool) {
+        updated.show_end_time = j->b;
+    }
+    if (const auto* j = root.get("hide_empty_days"); j && j->type == JsonVal::Type::Bool) {
+        updated.hide_empty_days = j->b;
+    }
+    if (const auto* j = root.get("hide_all_day"); j && j->type == JsonVal::Type::Bool) {
+        updated.hide_all_day = j->b;
+    }
+    if (const auto* j = root.get("show_footer"); j && j->type == JsonVal::Type::Bool) {
+        updated.show_footer = j->b;
     }
     if (const auto* arr = root.get("calendars"); arr && arr->type == JsonVal::Type::Array) {
         updated.calendars.clear();

@@ -93,6 +93,8 @@ void CalendarConfig::sanitize(CalendarConfig& cfg) {
     if (cfg.sync_interval_minutes > kMaxIntervalMin) cfg.sync_interval_minutes = kMaxIntervalMin;
     if (cfg.display_days < kMinDisplayDays) cfg.display_days = kMinDisplayDays;
     if (cfg.display_days > kMaxDisplayDays) cfg.display_days = kMaxDisplayDays;
+    if (static_cast<uint8_t>(cfg.title_mode) > 2) cfg.title_mode = TitleMode::EventTitle;
+    if (static_cast<uint8_t>(cfg.location_mode) > 2) cfg.location_mode = LocationMode::Full;
     if (cfg.calendars.size() > kMaxCalendars) cfg.calendars.resize(kMaxCalendars);
     for (auto& cal : cfg.calendars) {
         cal.name = trim(cal.name);
@@ -117,6 +119,17 @@ std::vector<uint8_t> CalendarConfig::encode(const CalendarConfig& in) {
     out.push_back(cfg.sync_minute);
     put_u16(out, cfg.sync_interval_minutes);
     out.push_back(cfg.display_days);
+    const uint8_t flags =
+        (cfg.use_12h ? 0x01u : 0u) |
+        (cfg.show_end_time ? 0x02u : 0u) |
+        (cfg.hide_empty_days ? 0x04u : 0u) |
+        (cfg.hide_all_day ? 0x08u : 0u) |
+        (cfg.show_footer ? 0x10u : 0u);
+    const uint8_t modes =
+        static_cast<uint8_t>((static_cast<uint8_t>(cfg.title_mode) & 0x0Fu) |
+                             ((static_cast<uint8_t>(cfg.location_mode) & 0x0Fu) << 4));
+    out.push_back(flags);
+    out.push_back(modes);
     out.push_back(static_cast<uint8_t>(cfg.calendars.size()));
     for (const auto& cal : cfg.calendars) {
         put_str(out, cal.name, kMaxNameLen);
@@ -150,6 +163,29 @@ bool CalendarConfig::decode(const uint8_t* data, size_t len, CalendarConfig& out
         parsed.display_days = data[pos++];
     } else {
         parsed.display_days = 3;
+    }
+    if (ver >= 4) {
+        if (pos + 2 > len) return false;
+        const uint8_t flags = data[pos++];
+        const uint8_t modes = data[pos++];
+        parsed.use_12h = (flags & 0x01u) != 0;
+        parsed.show_end_time = (flags & 0x02u) != 0;
+        parsed.hide_empty_days = (flags & 0x04u) != 0;
+        parsed.hide_all_day = (flags & 0x08u) != 0;
+        parsed.show_footer = (flags & 0x10u) != 0;
+        const uint8_t tm = modes & 0x0Fu;
+        const uint8_t lm = (modes >> 4) & 0x0Fu;
+        if (tm > 2 || lm > 2) return false;
+        parsed.title_mode = static_cast<TitleMode>(tm);
+        parsed.location_mode = static_cast<LocationMode>(lm);
+    } else {
+        parsed.title_mode = TitleMode::EventTitle;
+        parsed.location_mode = LocationMode::Full;
+        parsed.use_12h = false;
+        parsed.show_end_time = true;
+        parsed.hide_empty_days = false;
+        parsed.hide_all_day = false;
+        parsed.show_footer = true;
     }
     if (pos + 1 > len) return false;
     const uint8_t count = data[pos++];

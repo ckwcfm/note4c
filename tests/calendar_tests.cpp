@@ -287,6 +287,48 @@ void test_configurable_display_days() {
     CHECK(d6.calendars.size() == 6);
     for (int i = 0; i < 6; ++i) CHECK(d6.calendars[static_cast<size_t>(i)].color == all6[i]);
 
+    // Verify v4 Display Settings round-trip cleanly through config codec & renderer modes
+    CalendarConfig dv;
+    dv.wifi_ssid = "HomeWiFi";
+    dv.title_mode = TitleMode::CalendarName;
+    dv.location_mode = LocationMode::ShortVenue;
+    dv.use_12h = true;
+    dv.show_end_time = false;
+    dv.hide_empty_days = true;
+    dv.hide_all_day = true;
+    dv.show_footer = false;
+    auto bv = CalendarConfig::encode(dv);
+    CalendarConfig dv_dec;
+    CHECK(CalendarConfig::decode(bv.data(), bv.size(), dv_dec));
+    CHECK(dv_dec == dv);
+    CHECK(parse_title_mode(title_mode_name(TitleMode::CalendarName)) == TitleMode::CalendarName);
+    CHECK(parse_title_mode(title_mode_name(TitleMode::Hidden)) == TitleMode::Hidden);
+    CHECK(parse_location_mode(location_mode_name(LocationMode::ShortVenue)) == LocationMode::ShortVenue);
+    CHECK(parse_location_mode(location_mode_name(LocationMode::Off)) == LocationMode::Off);
+
+    // Verify 12h + ShortVenue + HideEmptyDays + NoFooter render produces valid distinct frame
+    Frame f_custom;
+    CalendarViewStatus cst;
+    cst.today = {2026, 11, 25};
+    cst.display_days = 7;
+    cst.sync_hour = 14;
+    cst.sync_minute = 5;
+    cst.wifi_connected = true;
+    cst.battery_percent = 84;
+    cst.use_12h = true;
+    cst.location_mode = LocationMode::ShortVenue;
+    cst.hide_empty_days = true;
+    cst.show_footer = false;
+    std::array<std::vector<CalendarEvent>, IcsParser::kMaxDays> cdays{};
+    cdays[0] = {{"Practice", "Sports", CalendarColor::RedOutline, false, 14 * 60, 15 * 60 + 30, false, "", 0, false, "Scotia Barn, 6501 Sprott St"}};
+    cdays[3] = {{"All Day", "Personal", CalendarColor::Yellow, true, 0, 0, false, "", 0, false, ""}};
+    CalendarRenderer crenderer;
+    crenderer.draw_agenda(cst, cdays, f_custom);
+    Frame f_hidden_allday;
+    cst.hide_all_day = true;
+    crenderer.draw_agenda(cst, cdays, f_hidden_allday);
+    CHECK(f_custom != f_hidden_allday);
+
     IcsParser p1({2026, 11, 25}, tz, CalendarColor::Red, "Cal", 1);
     p1.feed(ics);
     p1.finish();

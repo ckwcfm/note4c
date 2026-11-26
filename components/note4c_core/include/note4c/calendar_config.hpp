@@ -56,6 +56,48 @@ inline CalendarColor parse_calendar_color(std::string_view s) {
     return CalendarColor::Black;
 }
 
+enum class TitleMode : uint8_t {
+    EventTitle = 0,
+    CalendarName = 1,
+    Hidden = 2,
+};
+
+inline const char* title_mode_name(TitleMode m) {
+    switch (m) {
+    case TitleMode::CalendarName: return "calendar";
+    case TitleMode::Hidden: return "none";
+    case TitleMode::EventTitle:
+    default: return "title";
+    }
+}
+
+inline TitleMode parse_title_mode(std::string_view s) {
+    if (s == "calendar" || s == "1") return TitleMode::CalendarName;
+    if (s == "none" || s == "hidden" || s == "2") return TitleMode::Hidden;
+    return TitleMode::EventTitle;
+}
+
+enum class LocationMode : uint8_t {
+    Off = 0,
+    ShortVenue = 1,
+    Full = 2,
+};
+
+inline const char* location_mode_name(LocationMode m) {
+    switch (m) {
+    case LocationMode::Off: return "off";
+    case LocationMode::ShortVenue: return "short";
+    case LocationMode::Full:
+    default: return "full";
+    }
+}
+
+inline LocationMode parse_location_mode(std::string_view s) {
+    if (s == "off" || s == "none" || s == "0") return LocationMode::Off;
+    if (s == "short" || s == "venue" || s == "1") return LocationMode::ShortVenue;
+    return LocationMode::Full;
+}
+
 struct CalendarSub {
     std::string name;
     std::string url;
@@ -68,7 +110,7 @@ struct CalendarSub {
 };
 
 struct CalendarConfig {
-    static constexpr uint32_t kVersion = 3;
+    static constexpr uint32_t kVersion = 4;
     static constexpr size_t kMaxCalendars = 8;
     static constexpr size_t kMaxSsidLen = 32;
     static constexpr size_t kMaxPassLen = 63;
@@ -87,6 +129,13 @@ struct CalendarConfig {
     uint8_t sync_minute = 0;
     uint16_t sync_interval_minutes = 1440; // 1440 = once a day
     uint8_t display_days = 3;              // 1..7 days to sync & display
+    TitleMode title_mode = TitleMode::EventTitle;
+    LocationMode location_mode = LocationMode::Full;
+    bool use_12h = false;
+    bool show_end_time = true;
+    bool hide_empty_days = false;
+    bool hide_all_day = false;
+    bool show_footer = true;
     std::vector<CalendarSub> calendars;
 
     bool has_wifi() const { return !wifi_ssid.empty(); }
@@ -99,13 +148,20 @@ struct CalendarConfig {
                sync_minute == o.sync_minute &&
                sync_interval_minutes == o.sync_interval_minutes &&
                display_days == o.display_days &&
+               title_mode == o.title_mode &&
+               location_mode == o.location_mode &&
+               use_12h == o.use_12h &&
+               show_end_time == o.show_end_time &&
+               hide_empty_days == o.hide_empty_days &&
+               hide_all_day == o.hide_all_day &&
+               show_footer == o.show_footer &&
                calendars == o.calendars;
     }
 
     static std::string normalize_url(std::string_view url);
     static void sanitize(CalendarConfig& cfg);
     static std::vector<uint8_t> encode(const CalendarConfig& cfg);
-    // Decodes v1, v2, and v3 blobs cleanly with backward-compatible defaults.
+    // Decodes v1, v2, v3, and v4 blobs cleanly with backward-compatible defaults.
     static bool decode(const uint8_t* data, size_t len, CalendarConfig& out);
 
     // Compute seconds until next scheduled sync anchored at target_hour:target_min

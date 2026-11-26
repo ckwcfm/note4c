@@ -34,7 +34,7 @@ struct CalendarEngine {
         : display(port, RefreshPolicy{200, 1000, 1500}) {}
 };
 
-enum class NetJobKind : uint8_t { None = 0, Sync, StartManage, ReconnectWifi, GithubOta, DeviceOta };
+enum class NetJobKind : uint8_t { None = 0, Sync, WakeQuiet, StartManage, ReconnectWifi, GithubOta, DeviceOta };
 
 struct NetJob {
     NetJobKind kind = NetJobKind::None;
@@ -137,6 +137,36 @@ void execute_sync(AppCtx& app, bool keep_wifi) {
 
     (void)keep_wifi; // Wi-Fi & web server stay active until deep sleep on battery
     app.sync_result_ready.store(true, std::memory_order_release);
+}
+
+void execute_wake_quiet(AppCtx& app) {
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    const CalendarConfig cfg = app.web_state->config;
+    refresh_battery_locked(app);
+    app.web_state->status_message = "Connecting to Wi-Fi (quiet wake)...";
+    xSemaphoreGive(app.mutex);
+
+    bool connected = app.wifi->is_sta_connected();
+    if (!connected && cfg.has_wifi()) {
+        connected = app.wifi->connect_sta(cfg.wifi_ssid, cfg.wifi_password, 15000);
+    }
+
+    xSemaphoreTake(app.mutex, portMAX_DELAY);
+    refresh_battery_locked(app);
+    if (connected) {
+        app.web_state->is_ap_mode = false;
+        app.web_state->mode_label = "Wi-Fi";
+        app.web_state->ip_address = app.wifi->ip_address();
+        app.web_state->status_message = "Awake (no sync). Press OK again to sync now.";
+    } else {
+        app.web_state->status_message = "Quiet wake: could not connect to Wi-Fi.";
+    }
+    xSemaphoreGive(app.mutex);
+
+    if (connected && !app.web->running()) {
+        app.web->start();
+    }
+    ESP_LOGI(kTag, "Quiet wake complete (wifi=%d); e-paper untouched", connected ? 1 : 0);
 }
 
 void execute_start_manage(AppCtx& app, bool force_ap, const std::string& detail) {
@@ -372,6 +402,8 @@ void net_worker_task(void* arg) {
             app.worker_busy.store(true, std::memory_order_release);
             if (job.kind == NetJobKind::Sync) {
                 execute_sync(app, job.keep_wifi);
+            } else if (job.kind == NetJobKind::WakeQuiet) {
+                execute_wake_quiet(app);
             } else if (job.kind == NetJobKind::StartManage) {
                 execute_start_manage(app, job.force_ap, job.detail);
             } else if (job.kind == NetJobKind::ReconnectWifi) {
@@ -466,6 +498,19 @@ extern "C" void app_main() {
     ESP_ERROR_CHECK(created == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 
     uint32_t next_sleep_sec = 24 * 3600;
+    {
+        // Seed next_sleep_sec from onboard PCF8563 RTC so quiet wakes preserve the exact schedule
+        RtcTime rtc{};
+        if (board.read_rtc(rtc) && rtc.year >= 2025) {
+            const int64_t utc_sec = days_from_civil({rtc.year, rtc.month, rtc.day}) * 86400LL +
+                                    rtc.hour * 3600LL + rtc.minute * 60LL + rtc.second;
+            const LocalDateTime loc = TzRule::parse_posix(web_state.config.timezone).utc_to_local(utc_sec);
+            next_sleep_sec = CalendarConfig::seconds_until_next_sync(
+                loc.hour, loc.minute, loc.second,
+                web_state.config.sync_hour, web_state.config.sync_minute,
+                web_state.config.sync_interval_minutes);
+        }
+    }
     bool synced_this_boot = false;
     Millis idle_since_ms = now_ms();
     Millis last_sync_ms = now_ms();
@@ -482,6 +527,9 @@ extern "C" void app_main() {
         enqueue_job(app, {NetJobKind::StartManage, false, true, "First-time setup"});
     } else if (wake == WakeReason::DownButton || down_held) {
         enqueue_job(app, {NetJobKind::StartManage, false, false, "Auto-sleep after 10 min on battery"});
+    } else if (wake == WakeReason::ConfirmButton) {
+        // Wake quietly on OK from deep sleep: join Wi-Fi & Web UI without syncing or flashing screen
+        enqueue_job(app, {NetJobKind::WakeQuiet, true, false, ""});
     } else {
         enqueue_job(app, {NetJobKind::Sync, false, false, ""});
     }
@@ -672,6 +720,13 @@ extern "C" void app_main() {
                 CalendarViewStatus st;
                 st.today = rep.today;
                 st.display_days = std::clamp(rep.display_days, 1, static_cast<int>(IcsParser::kMaxDays));
+                st.title_mode = cfg.title_mode;
+                st.location_mode = cfg.location_mode;
+                st.use_12h = cfg.use_12h;
+                st.show_end_time = cfg.show_end_time;
+                st.hide_empty_days = cfg.hide_empty_days;
+                st.hide_all_day = cfg.hide_all_day;
+                st.show_footer = cfg.show_footer;
                 st.sync_hour = rep.local_hour;
                 st.sync_minute = rep.local_minute;
                 st.wifi_connected = rep.wifi_ok;
@@ -737,11 +792,11 @@ extern "C" void app_main() {
                 }
             } else if (!web.ota_in_progress() && web.take_sleep_request()) {
                 vTaskDelay(pdMS_TO_TICKS(300));
-                app.in_manage_mode.store(false, std::memory_order_release);
+                const bool was_manage = app.in_manage_mode.exchange(false, std::memory_order_acq_rel);
                 xSemaphoreTake(state_mutex, portMAX_DELAY);
                 const bool has_w = web_state.config.has_wifi();
                 xSemaphoreGive(state_mutex);
-                if (!synced_this_boot && has_w) {
+                if (was_manage && !synced_this_boot && has_w) {
                     enqueue_job(app, {NetJobKind::Sync, false, false, ""});
                 } else {
                     force_sleep_now = true;

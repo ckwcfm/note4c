@@ -12,6 +12,13 @@ namespace note4c {
 struct CalendarViewStatus {
     CivilDate today{};
     int display_days = 3; // 1..7 days to show
+    TitleMode title_mode = TitleMode::EventTitle;
+    LocationMode location_mode = LocationMode::Full;
+    bool use_12h = false;
+    bool show_end_time = true;
+    bool hide_empty_days = false;
+    bool hide_all_day = false;
+    bool show_footer = true;
     int sync_hour = -1;
     int sync_minute = -1;
     bool wifi_connected = false;

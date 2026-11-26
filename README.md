@@ -43,8 +43,9 @@ ESP-IDF v6.0 / C++17 firmware and host-testable core for the **ZECTRIX NOTE4C PC
 
 ## Controls
 
-- **Confirm (short):** On calendar view, sync calendars now; on Manage screen,
-  exit back to the 3-day calendar without forcing a sync.
+- **Confirm (short):** When asleep on battery, wakes Wi-Fi & Web UI quietly
+  without syncing or flashing the screen; while awake on calendar view, syncs
+  calendars now; on Manage screen, exits back to the calendar without syncing.
 - **Confirm (hold 3 s, then release):** Restart the device cleanly (LED blinks
   rapidly once armed; also available via **Restart Device** in the web UI).
 - **Down (short):** Open the Manage screen (shows LAN IP, Wi-Fi MAC, current
