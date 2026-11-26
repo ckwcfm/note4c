@@ -516,6 +516,9 @@ void IcsParser::process_unfolded_line(std::string_view line) {
         current_event_.uid = std::string(value);
     } else if (name == "SUMMARY") {
         current_event_.summary = unescape_and_clean(value);
+    } else if (name == "LOCATION") {
+        current_event_.location = unescape_and_clean(value);
+        if (current_event_.location.size() > 96) current_event_.location.resize(96);
     } else if (name == "STATUS") {
         if (upper_ascii(value) == "CANCELLED") current_event_.cancelled = true;
     } else if (name == "DTSTART") {
@@ -778,6 +781,7 @@ void IcsParser::emit_occurrence(const PendingEvent& ev, int64_t start_utc, int64
                     ce.uid = ev.uid;
                     ce.recurrence_key = rec_key;
                     ce.is_override = is_override;
+                    ce.location = ev.location;
                     dst.push_back(std::move(ce));
                 }
             }
@@ -803,6 +807,7 @@ void IcsParser::emit_occurrence(const PendingEvent& ev, int64_t start_utc, int64
             ce.uid = ev.uid;
             ce.recurrence_key = rec_key;
             ce.is_override = is_override;
+            ce.location = ev.location;
             if (start_utc < d_start) {
                 ce.start_minute = 0;
                 ce.continues_from_prev = true;

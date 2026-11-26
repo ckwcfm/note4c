@@ -16,7 +16,9 @@ ESP-IDF v6.0 / C++17 firmware and host-testable core for the **ZECTRIX NOTE4C PC
   icon, and calibrated battery percentage + icon.
 - **Direct `.ics` / `webcal://` subscriptions:** Subscribe to up to 8 iCal feeds
   (Google Calendar secret iCal address, Apple iCloud, Outlook, TeamSnap, Nextcloud)
-  and pick **Black**, **Red**, or **Yellow** for each calendar.
+  and pick from **6 display styles** (**Black**, **Red**, **Yellow** — each in
+  **Solid** or **Outlined**). Displays start/end time ranges and adaptive 2-line
+  event locations when screen space allows.
 - **Streaming RFC 5545 parser:** Handles line unfolding, `VTIMEZONE` & IANA/POSIX
   timezones, `RRULE` recurrences (`DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`),
   `EXDATE` exclusions, `RECURRENCE-ID` overrides, and multi-day all-day events.

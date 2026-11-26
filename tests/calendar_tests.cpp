@@ -252,20 +252,40 @@ void test_configurable_display_days() {
     CalendarConfig::sanitize(cfg);
     CHECK(cfg.display_days == 7);
 
-    // 7-day ICS parser test: day 0, day 6 included; day 7 excluded
+    // 7-day ICS parser test: day 0, day 6 included; day 7 excluded; LOCATION parsed & unescaped
     const TzRule tz = TzRule::parse_posix("UTC0");
     const std::string ics =
         "BEGIN:VCALENDAR\r\n"
-        "BEGIN:VEVENT\r\nUID:d0\r\nDTSTART:20261125T090000Z\r\nDTEND:20261125T100000Z\r\nSUMMARY:Day0\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:d0\r\nDTSTART:20261125T090000Z\r\nDTEND:20261125T103000Z\r\nSUMMARY:Day0\r\nLOCATION:Room 4B\\, Main Hall\r\nEND:VEVENT\r\n"
         "BEGIN:VEVENT\r\nUID:d6\r\nDTSTART:20261201T140000Z\r\nDTEND:20261201T150000Z\r\nSUMMARY:Day6\r\nEND:VEVENT\r\n"
         "BEGIN:VEVENT\r\nUID:d7\r\nDTSTART:20261202T140000Z\r\nDTEND:20261202T150000Z\r\nSUMMARY:Day7Out\r\nEND:VEVENT\r\n"
         "END:VCALENDAR\r\n";
-    IcsParser p7({2026, 11, 25}, tz, CalendarColor::Red, "Cal", 7);
+    IcsParser p7({2026, 11, 25}, tz, CalendarColor::RedOutline, "Cal", 7);
     p7.feed(ics);
     p7.finish();
     CHECK(p7.num_days() == 7);
     CHECK(p7.day_events(0).size() == 1);
+    CHECK(p7.day_events(0)[0].location == "Room 4B, Main Hall");
+    CHECK(p7.day_events(0)[0].end_minute == 10 * 60 + 30);
+    CHECK(p7.day_events(0)[0].color == CalendarColor::RedOutline);
     CHECK(p7.day_events(6).size() == 1 && p7.day_events(6)[0].title == "Day6");
+
+    // Verify all 6 color styles round-trip cleanly through config codec and string parser
+    CalendarConfig c6;
+    c6.wifi_ssid = "HomeWiFi";
+    const CalendarColor all6[6] = {
+        CalendarColor::Black, CalendarColor::Red, CalendarColor::Yellow,
+        CalendarColor::BlackOutline, CalendarColor::RedOutline, CalendarColor::YellowOutline,
+    };
+    for (int i = 0; i < 6; ++i) {
+        CHECK(parse_calendar_color(calendar_color_name(all6[i])) == all6[i]);
+        c6.calendars.push_back({"C" + std::to_string(i), "https://example.com/" + std::to_string(i) + ".ics", all6[i], true});
+    }
+    auto b6 = CalendarConfig::encode(c6);
+    CalendarConfig d6;
+    CHECK(CalendarConfig::decode(b6.data(), b6.size(), d6));
+    CHECK(d6.calendars.size() == 6);
+    for (int i = 0; i < 6; ++i) CHECK(d6.calendars[static_cast<size_t>(i)].color == all6[i]);
 
     IcsParser p1({2026, 11, 25}, tz, CalendarColor::Red, "Cal", 1);
     p1.feed(ics);

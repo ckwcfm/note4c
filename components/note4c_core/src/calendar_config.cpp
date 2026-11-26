@@ -99,7 +99,7 @@ void CalendarConfig::sanitize(CalendarConfig& cfg) {
         if (cal.name.size() > kMaxNameLen) cal.name.resize(kMaxNameLen);
         cal.url = normalize_url(cal.url);
         if (cal.name.empty()) cal.name = "Calendar";
-        if (static_cast<uint8_t>(cal.color) > 2) cal.color = CalendarColor::Black;
+        if (static_cast<uint8_t>(cal.color) > 5) cal.color = CalendarColor::Black;
     }
 }
 
@@ -166,7 +166,7 @@ bool CalendarConfig::decode(const uint8_t* data, size_t len, CalendarConfig& out
         if (pos + 2 > len) return false;
         const uint8_t c = data[pos++];
         const uint8_t en = data[pos++];
-        if (c > 2 || en > 1) return false;
+        if (c > 5 || en > 1) return false;
         sub.color = static_cast<CalendarColor>(c);
         sub.enabled = (en != 0);
         parsed.calendars.push_back(std::move(sub));

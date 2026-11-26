@@ -77,6 +77,7 @@ struct CalendarEvent {
     std::string uid;
     int64_t recurrence_key = 0; // UTC timestamp or day-number key of occurrence start
     bool is_override = false;
+    std::string location;
 };
 
 void sort_calendar_events(std::vector<CalendarEvent>& events);
@@ -133,6 +134,7 @@ private:
     struct PendingEvent {
         std::string uid;
         std::string summary;
+        std::string location;
         IcsDateTime dtstart;
         IcsDateTime dtend;
         int64_t duration_sec = -1;

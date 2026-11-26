@@ -33,30 +33,32 @@ int main(int argc, char** argv) {
     st.battery_percent = 84;
     st.legend = {
         {"Work", "https://example.com/a.ics", CalendarColor::Red, true},
-        {"Personal", "https://example.com/b.ics", CalendarColor::Yellow, true},
-        {"Family", "https://example.com/c.ics", CalendarColor::Black, true},
+        {"Sports", "https://example.com/b.ics", CalendarColor::RedOutline, true},
+        {"Personal", "https://example.com/c.ics", CalendarColor::Yellow, true},
+        {"School", "https://example.com/d.ics", CalendarColor::YellowOutline, true},
+        {"Family", "https://example.com/e.ics", CalendarColor::Black, true},
+        {"Other", "https://example.com/f.ics", CalendarColor::BlackOutline, true},
     };
     std::array<std::vector<CalendarEvent>, IcsParser::kMaxDays> days{};
     days[0] = {
-        {"Engineering Standup", "Work", CalendarColor::Red, false, 9 * 60 + 30, 10 * 60, false, "", 0, false},
-        {"Lunch with Alex", "Family", CalendarColor::Black, false, 12 * 60, 13 * 60, false, "", 0, false},
-        {"Evening Run", "Personal", CalendarColor::Yellow, false, 17 * 60 + 30, 18 * 60 + 30, false, "", 0, false},
+        {"Engineering Standup", "Work", CalendarColor::Red, false, 9 * 60 + 30, 10 * 60, false, "", 0, false, "Conference Room B"},
+        {"Lunch with Alex", "Family", CalendarColor::Black, false, 12 * 60, 13 * 60, false, "", 0, false, "Bistro on Main St"},
+        {"Soccer Practice", "Sports", CalendarColor::RedOutline, false, 17 * 60 + 30, 19 * 60, false, "", 0, false, "Burnaby Lake Field 3"},
     };
     days[1] = {
-        {"School Holiday", "Family", CalendarColor::Black, true, 0, 0, false, "", 0, false},
-        {"Design Review", "Work", CalendarColor::Red, false, 14 * 60, 15 * 60, false, "", 0, false},
+        {"School Assembly", "School", CalendarColor::YellowOutline, false, 10 * 60, 11 * 60 + 30, false, "", 0, false, "Gymnasium"},
+        {"Dentist Checkup", "Other", CalendarColor::BlackOutline, false, 14 * 60, 15 * 60, false, "", 0, false, ""},
     };
     days[2] = {
-        {"Weekend Retreat", "Personal", CalendarColor::Yellow, true, 0, 0, false, "", 0, false},
-        {"Morning Hike", "Personal", CalendarColor::Yellow, false, 9 * 60, 11 * 60, false, "", 0, false},
-        {"Family Dinner", "Work", CalendarColor::Red, false, 18 * 60, 20 * 60, false, "", 0, false},
+        {"Weekend Retreat", "Personal", CalendarColor::Yellow, true, 0, 0, false, "", 0, false, "Whistler Village"},
+        {"Morning Hike", "Personal", CalendarColor::Yellow, false, 9 * 60, 11 * 60, false, "", 0, false, ""},
     };
     days[4] = {
-        {"Sunday Brunch", "Family", CalendarColor::Black, false, 11 * 60, 12 * 60, false, "", 0, false},
+        {"Sunday Brunch", "Family", CalendarColor::Black, false, 11 * 60, 12 * 60 + 30, false, "", 0, false, "Granville Island"},
     };
     days[6] = {
-        {"Sprint Kickoff", "Work", CalendarColor::Red, false, 10 * 60, 11 * 60, false, "", 0, false},
-        {"Team Sync", "Work", CalendarColor::Red, false, 15 * 60, 16 * 60, false, "", 0, false},
+        {"Sprint Kickoff", "Work", CalendarColor::Red, false, 10 * 60, 11 * 60, false, "", 0, false, "HQ Room 201"},
+        {"Team Sync", "Sports", CalendarColor::RedOutline, false, 15 * 60, 16 * 60, false, "", 0, false, ""},
     };
 
     CalendarRenderer renderer;
@@ -65,7 +67,7 @@ int main(int argc, char** argv) {
     renderer.draw_agenda(st, days, f_agenda);
     st.display_days = 7;
     renderer.draw_agenda(st, days, f_agenda_7d);
-    renderer.draw_manage(false, "HomeWiFi", "http://192.168.1.42", "AA:BB:CC:DD:EE:FF", "v0.2.3 (ota_0)", "Update v0.2.4 available! Hold UP to install", f_manage);
+    renderer.draw_manage(false, "HomeWiFi", "http://192.168.1.42", "AA:BB:CC:DD:EE:FF", "v0.2.4 (ota_0)", "Update v0.2.5 available! Hold UP to install", f_manage);
     renderer.draw_ota_progress("UPDATING FIRMWARE", "v0.2.2 -> v0.2.3 (ckwcfm/note4c)", "Downloading... 616 / 1120 KB", 55, f_ota);
 
     write_ppm(f_agenda, out_dir + "/calendar_agenda.ppm");

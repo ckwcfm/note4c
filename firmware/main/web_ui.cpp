@@ -222,11 +222,14 @@ input[type=text],input[type=password],input[type=url],input[type=time],select{wi
 .btn-sm{padding:6px 10px;font-size:13px}
 .cal-item{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:#fafaf9}
 .cal-top{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.swatches{display:inline-flex;gap:6px;align-items:center}
-.sw{width:26px;height:26px;border-radius:50%;border:2px solid #d4d4d8;cursor:pointer;position:relative}
-.sw[data-c=black]{background:var(--blk)}
-.sw[data-c=red]{background:var(--red)}
-.sw[data-c=yellow]{background:var(--yel)}
+.swatches{display:inline-flex;gap:5px;align-items:center}
+.sw{width:24px;height:24px;border-radius:50%;border:2px solid #d4d4d8;cursor:pointer;position:relative;background:#fff}
+.sw[data-c=black]{background:var(--blk);border-color:var(--blk)}
+.sw[data-c=red]{background:var(--red);border-color:var(--red)}
+.sw[data-c=yellow]{background:var(--yel);border-color:#ca9a04}
+.sw[data-c=black_outline]{background:#fff;border:3px solid var(--blk)}
+.sw[data-c=red_outline]{background:#fff;border:3px solid var(--red)}
+.sw[data-c=yellow_outline]{background:#fff;border:3px solid var(--yel);box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)}
 .sw.active{outline:2px solid var(--ink);outline-offset:2px}
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
 .actions .btn{flex:1;min-width:140px}
@@ -439,10 +442,13 @@ function renderCals() {
       <div class="cal-top">
         <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="cals[${idx}].enabled=this.checked" title="Enable">
         <input type="text" maxlength="24" value="${esc(c.name)}" placeholder="Calendar name (e.g. Work)" oninput="cals[${idx}].name=this.value" style="flex:1;min-width:120px">
-        <div class="swatches" title="Display color">
-          <button type="button" class="sw ${c.color==='black'?'active':''}" data-c="black" onclick="setCol(${idx},'black')" title="Black"></button>
-          <button type="button" class="sw ${c.color==='red'?'active':''}" data-c="red" onclick="setCol(${idx},'red')" title="Red"></button>
-          <button type="button" class="sw ${c.color==='yellow'?'active':''}" data-c="yellow" onclick="setCol(${idx},'yellow')" title="Yellow"></button>
+        <div class="swatches" title="Display style (Solid or Outlined)">
+          <button type="button" class="sw ${c.color==='black'?'active':''}" data-c="black" onclick="setCol(${idx},'black')" title="Black (Solid)"></button>
+          <button type="button" class="sw ${c.color==='red'?'active':''}" data-c="red" onclick="setCol(${idx},'red')" title="Red (Solid)"></button>
+          <button type="button" class="sw ${c.color==='yellow'?'active':''}" data-c="yellow" onclick="setCol(${idx},'yellow')" title="Yellow (Solid)"></button>
+          <button type="button" class="sw ${c.color==='black_outline'?'active':''}" data-c="black_outline" onclick="setCol(${idx},'black_outline')" title="Black (Outlined)"></button>
+          <button type="button" class="sw ${c.color==='red_outline'?'active':''}" data-c="red_outline" onclick="setCol(${idx},'red_outline')" title="Red (Outlined)"></button>
+          <button type="button" class="sw ${c.color==='yellow_outline'?'active':''}" data-c="yellow_outline" onclick="setCol(${idx},'yellow_outline')" title="Yellow (Outlined)"></button>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" onclick="delCal(${idx})">Remove</button>
       </div>
@@ -457,8 +463,8 @@ function setCol(i, col) { cals[i].color = col; renderCals(); }
 function delCal(i) { cals.splice(i, 1); renderCals(); }
 function addCal() {
   if (cals.length >= 8) { setStatus('Maximum 8 calendars supported.', 'err'); return; }
-  const cols = ['red','yellow','black'];
-  cals.push({ name: '', url: '', color: cols[cals.length % 3], enabled: true });
+  const cols = ['red','yellow','black','red_outline','yellow_outline','black_outline'];
+  cals.push({ name: '', url: '', color: cols[cals.length % cols.length], enabled: true });
   renderCals();
 }
 

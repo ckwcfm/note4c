@@ -12,13 +12,25 @@ enum class CalendarColor : uint8_t {
     Black = 0,
     Red = 1,
     Yellow = 2,
+    BlackOutline = 3,
+    RedOutline = 4,
+    YellowOutline = 5,
 };
+
+inline bool is_outline_color(CalendarColor c) {
+    return c == CalendarColor::BlackOutline ||
+           c == CalendarColor::RedOutline ||
+           c == CalendarColor::YellowOutline;
+}
 
 inline Color to_frame_color(CalendarColor c) {
     switch (c) {
-    case CalendarColor::Red: return Color::Red;
-    case CalendarColor::Yellow: return Color::Yellow;
+    case CalendarColor::Red:
+    case CalendarColor::RedOutline: return Color::Red;
+    case CalendarColor::Yellow:
+    case CalendarColor::YellowOutline: return Color::Yellow;
     case CalendarColor::Black:
+    case CalendarColor::BlackOutline:
     default: return Color::Black;
     }
 }
@@ -27,6 +39,9 @@ inline const char* calendar_color_name(CalendarColor c) {
     switch (c) {
     case CalendarColor::Red: return "red";
     case CalendarColor::Yellow: return "yellow";
+    case CalendarColor::BlackOutline: return "black_outline";
+    case CalendarColor::RedOutline: return "red_outline";
+    case CalendarColor::YellowOutline: return "yellow_outline";
     case CalendarColor::Black:
     default: return "black";
     }
@@ -35,6 +50,9 @@ inline const char* calendar_color_name(CalendarColor c) {
 inline CalendarColor parse_calendar_color(std::string_view s) {
     if (s == "red" || s == "RED" || s == "1") return CalendarColor::Red;
     if (s == "yellow" || s == "YELLOW" || s == "2") return CalendarColor::Yellow;
+    if (s == "black_outline" || s == "BLACK_OUTLINE" || s == "3") return CalendarColor::BlackOutline;
+    if (s == "red_outline" || s == "RED_OUTLINE" || s == "4") return CalendarColor::RedOutline;
+    if (s == "yellow_outline" || s == "YELLOW_OUTLINE" || s == "5") return CalendarColor::YellowOutline;
     return CalendarColor::Black;
 }
 

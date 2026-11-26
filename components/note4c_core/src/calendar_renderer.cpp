@@ -74,51 +74,77 @@ void draw_battery_icon(Frame& f, int x, int y, int pct, bool charging) {
     }
 }
 
-void draw_event_row(Frame& f, int y, const CalendarEvent& ev, bool compact, int more_badge = 0) {
-    const Color bar_color = to_frame_color(ev.color);
+void draw_pin_icon(Frame& f, int x, int y, Color c) {
+    static constexpr const char* kPin[7] = {
+        ".XXX.",
+        "X...X",
+        "X.X.X",
+        "X...X",
+        ".XXX.",
+        "..X..",
+        "..X..",
+    };
+    for (int r = 0; r < 7; ++r) {
+        for (int col = 0; col < 5; ++col) {
+            if (kPin[r][col] == 'X') f.pixel(x + col, y + r, c);
+        }
+    }
+}
+
+std::string format_event_time(const CalendarEvent& ev) {
+    if (ev.all_day) return "ALL DAY";
+    if (ev.continues_from_prev) {
+        if (ev.end_minute > 0 && ev.end_minute < 24 * 60) {
+            return "->" + format_hhmm(ev.end_minute);
+        }
+        return "CONT.";
+    }
+    const std::string st = format_hhmm(ev.start_minute);
+    if (ev.end_minute > ev.start_minute) {
+        if (ev.end_minute >= 24 * 60) return st + "-24:00";
+        return st + "-" + format_hhmm(ev.end_minute);
+    }
+    return st;
+}
+
+void draw_event_row(Frame& f, int y, const CalendarEvent& ev, bool compact,
+                    bool expand_loc, int more_badge = 0) {
+    const Color accent = to_frame_color(ev.color);
+    const bool outlined = is_outline_color(ev.color);
     const int top = compact ? y : (y + 1);
     const int badge_h = compact ? 13 : 14;
     const int text_y = compact ? (y + 2) : (y + 4);
-    // Left color indicator bar
-    f.rect(10, top, 4, badge_h, bar_color);
 
-    // Time badge (x=18..72, w=54)
-    std::string time_str;
-    if (ev.all_day) {
-        time_str = "ALL DAY";
-    } else if (ev.continues_from_prev) {
-        time_str = "CONT.";
+    // Time range pill (x=15..95, w=80) supporting 6 styles: 3 solid + 3 outlined (matching text & border color)
+    const std::string time_str = format_event_time(ev);
+    const bool bold_time = (time_str.size() <= 7) || (outlined && accent == Color::Yellow);
+    const int badge_x = 15;
+    const int badge_w = 80;
+    const int tw = font::measure_text(time_str, 1, bold_time);
+    const int tx = badge_x + std::max(2, (badge_w - tw) / 2);
+
+    if (!outlined) {
+        f.rect(badge_x, top, badge_w, badge_h, accent);
+        const Color fg = (accent == Color::Yellow) ? Color::Black : Color::White;
+        font::draw_text(f, tx, text_y, time_str, fg, 1, bold_time);
+    } else if (accent == Color::Yellow) {
+        // Yellow outline with matching bold Yellow text
+        f.rect(badge_x, top, badge_w, 2, Color::Yellow);
+        f.rect(badge_x, top + badge_h - 2, badge_w, 2, Color::Yellow);
+        f.rect(badge_x, top, 2, badge_h, Color::Yellow);
+        f.rect(badge_x + badge_w - 2, top, 2, badge_h, Color::Yellow);
+        font::draw_text(f, tx, text_y, time_str, Color::Yellow, 1, bold_time);
     } else {
-        time_str = format_hhmm(ev.start_minute);
+        // BlackOutline or RedOutline: crisp 1px colored border + matching colored text
+        f.rect(badge_x, top, badge_w, 1, accent);
+        f.rect(badge_x, top + badge_h - 1, badge_w, 1, accent);
+        f.rect(badge_x, top, 1, badge_h, accent);
+        f.rect(badge_x + badge_w - 1, top, 1, badge_h, accent);
+        font::draw_text(f, tx, text_y, time_str, accent, 1, bold_time);
     }
 
-    const int badge_x = 18;
-    const int badge_w = 54;
-    if (ev.color == CalendarColor::Yellow) {
-        f.rect(badge_x, top, badge_w, badge_h, Color::Yellow);
-        const int tw = font::measure_text(time_str, 1, true);
-        font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::Black, 1, true);
-    } else if (ev.color == CalendarColor::Red) {
-        f.rect(badge_x, top, badge_w, badge_h, Color::Red);
-        const int tw = font::measure_text(time_str, 1, true);
-        font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::White, 1, true);
-    } else {
-        if (ev.all_day) {
-            f.rect(badge_x, top, badge_w, badge_h, Color::Black);
-            const int tw = font::measure_text(time_str, 1, true);
-            font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::White, 1, true);
-        } else {
-            f.rect(badge_x, top, badge_w, 1, Color::Black);
-            f.rect(badge_x, top + badge_h - 1, badge_w, 1, Color::Black);
-            f.rect(badge_x, top, 1, badge_h, Color::Black);
-            f.rect(badge_x + badge_w - 1, top, 1, badge_h, Color::Black);
-            const int tw = font::measure_text(time_str, 1, true);
-            font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::Black, 1, true);
-        }
-    }
-
-    // Event title (x=80..390), reserving space on right for (+N) if single-row overflow
-    const int title_x = 80;
+    // Event title (x=101..390), reserving space on right for (+N) if single-row overflow
+    const int title_x = badge_x + badge_w + 6;
     int max_w = Frame::width - title_x - 10;
     if (more_badge > 0) {
         char mbuf[16];
@@ -127,8 +153,26 @@ void draw_event_row(Frame& f, int y, const CalendarEvent& ev, bool compact, int 
         font::draw_text(f, Frame::width - 10 - mw, text_y, mbuf, Color::Red, 1, true);
         max_w -= mw + 6;
     }
-    const std::string clipped = font::truncate_text(ev.title, max_w, 1, false);
-    font::draw_text(f, title_x, text_y, clipped, Color::Black, 1, false);
+
+    if (!expand_loc && !ev.location.empty()) {
+        // Fallback inline location when vertical space is full
+        const std::string combined = ev.title + " @ " + ev.location;
+        const std::string clipped = font::truncate_text(combined, max_w, 1, false);
+        font::draw_text(f, title_x, text_y, clipped, Color::Black, 1, false);
+    } else {
+        const std::string clipped = font::truncate_text(ev.title, max_w, 1, false);
+        font::draw_text(f, title_x, text_y, clipped, Color::Black, 1, false);
+    }
+
+    // Adaptive 2nd detail line for location indented cleanly under the title
+    if (expand_loc && !ev.location.empty()) {
+        const int loc_y = y + (compact ? 14 : 16);
+        const Color pin_c = (accent == Color::Red) ? Color::Red : Color::Black;
+        draw_pin_icon(f, title_x, loc_y + 1, pin_c);
+        const int loc_max_w = Frame::width - (title_x + 9) - 10;
+        const std::string loc_clipped = font::truncate_text(ev.location, loc_max_w, 1, false);
+        font::draw_text(f, title_x + 9, loc_y, loc_clipped, Color::Black, 1, false);
+    }
 }
 
 void draw_section_header(Frame& f, int y, std::string_view label,
@@ -205,6 +249,7 @@ void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
     const bool compact = (num_days >= 6);
     const int header_h = compact ? 16 : 19;
     const int row_h = compact ? 15 : 17;
+    const int loc_h = compact ? 11 : 12;
     const int gap_h = compact ? 2 : 5;
     constexpr int kContentH = 238;
 
@@ -217,7 +262,6 @@ void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
     for (int i = 0; i < num_days; ++i) {
         const int ev_cnt = static_cast<int>(days[static_cast<size_t>(i)].size());
         if (compact && ev_cnt == 0) {
-            // In 6-7 day view, empty days render "No events" inline in the header so busy days get more rows
             need[i] = 0;
             slots[i] = 0;
         } else {
@@ -239,6 +283,43 @@ void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
         if (!progressed) break;
     }
 
+    // Pre-compute visible event counts & spare vertical pixels for Adaptive 2-Line Locations
+    int show_cnt[IcsParser::kMaxDays]{};
+    bool has_more_row[IcsParser::kMaxDays]{};
+    bool inline_badge[IcsParser::kMaxDays]{};
+    int used_px = headers_and_gaps;
+
+    for (int i = 0; i < num_days; ++i) {
+        const auto& evs = days[static_cast<size_t>(i)];
+        if (evs.empty()) {
+            if (!compact) used_px += row_h;
+        } else {
+            const bool overflow = static_cast<int>(evs.size()) > slots[i];
+            if (overflow && (compact || slots[i] <= 1)) {
+                show_cnt[i] = std::max(1, slots[i]);
+                inline_badge[i] = true;
+                used_px += show_cnt[i] * row_h;
+            } else {
+                show_cnt[i] = overflow ? (slots[i] - 1) : static_cast<int>(evs.size());
+                has_more_row[i] = overflow;
+                used_px += (show_cnt[i] + (overflow ? 1 : 0)) * row_h;
+            }
+        }
+    }
+
+    int spare_px = std::max(0, kContentH - used_px);
+    std::array<std::vector<bool>, IcsParser::kMaxDays> expand_loc{};
+    for (int i = 0; i < num_days; ++i) {
+        expand_loc[static_cast<size_t>(i)].assign(static_cast<size_t>(show_cnt[i]), false);
+        const auto& evs = days[static_cast<size_t>(i)];
+        for (int r = 0; r < show_cnt[i]; ++r) {
+            if (!evs[static_cast<size_t>(r)].location.empty() && spare_px >= loc_h) {
+                expand_loc[static_cast<size_t>(i)][static_cast<size_t>(r)] = true;
+                spare_px -= loc_h;
+            }
+        }
+    }
+
     const int64_t base_day = days_from_civil(status.today);
     int y = 39;
     for (int i = 0; i < num_days; ++i) {
@@ -255,37 +336,37 @@ void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
         }
         const auto& evs = days[static_cast<size_t>(i)];
         const bool empty_inline = compact && evs.empty();
+        const int rule_y = compact ? (y + 14) : (y + 16);
         draw_section_header(f, y, label, day_date, accent, compact, empty_inline);
         y += header_h;
 
+        int group_bot = rule_y;
         if (evs.empty()) {
             if (!empty_inline) {
-                font::draw_text(f, 18, y + 4, "No events", Color::Black, 1, false);
+                font::draw_text(f, 16, y + 4, "No events", Color::Black, 1, false);
                 y += row_h;
+                group_bot = y - 2;
             }
         } else {
-            const bool overflow = static_cast<int>(evs.size()) > slots[i];
-            if (overflow && (compact || slots[i] <= 1)) {
-                const int show_count = std::max(1, slots[i]);
-                for (int r = 0; r < show_count; ++r) {
-                    const int badge = (r == show_count - 1) ? (static_cast<int>(evs.size()) - show_count) : 0;
-                    draw_event_row(f, y, evs[static_cast<size_t>(r)], compact, badge);
-                    y += row_h;
-                }
-            } else {
-                const int show_count = overflow ? (slots[i] - 1) : static_cast<int>(evs.size());
-                for (int r = 0; r < show_count; ++r) {
-                    draw_event_row(f, y, evs[static_cast<size_t>(r)], compact);
-                    y += row_h;
-                }
-                if (overflow) {
-                    const int more = static_cast<int>(evs.size()) - show_count;
-                    char mbuf[32];
-                    std::snprintf(mbuf, sizeof(mbuf), "+%d more event%s", more, more == 1 ? "" : "s");
-                    font::draw_text(f, 18, y + 4, mbuf, Color::Red, 1, true);
-                    y += row_h;
-                }
+            for (int r = 0; r < show_cnt[i]; ++r) {
+                const int badge = (inline_badge[i] && r == show_cnt[i] - 1)
+                                ? (static_cast<int>(evs.size()) - show_cnt[i]) : 0;
+                const bool exp = expand_loc[static_cast<size_t>(i)][static_cast<size_t>(r)];
+                draw_event_row(f, y, evs[static_cast<size_t>(r)], compact, exp, badge);
+                y += row_h + (exp ? loc_h : 0);
             }
+            if (has_more_row[i]) {
+                const int more = static_cast<int>(evs.size()) - show_cnt[i];
+                char mbuf[32];
+                std::snprintf(mbuf, sizeof(mbuf), "+%d more event%s", more, more == 1 ? "" : "s");
+                font::draw_text(f, 16, y + 4, mbuf, Color::Red, 1, true);
+                y += row_h;
+            }
+            group_bot = y - (compact ? 2 : 3);
+        }
+        // Black vertical rail dropping cleanly from the day's horizontal divider to wrap its events
+        if (group_bot > rule_y) {
+            f.rect(10, rule_y, 1, group_bot - rule_y + 1, Color::Black);
         }
         y += gap_h;
     }
@@ -297,20 +378,28 @@ void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
     const int hint_x = Frame::width - hint_w - 10;
     font::draw_text(f, hint_x, 285, hint, Color::Black, 1, false);
 
-    // Calendar color legend on left of footer
+    // Calendar color legend on left of footer (solid vs outlined matching 6 styles)
     int lx = 10;
     for (const auto& cal : status.legend) {
         if (!cal.enabled) continue;
-        const std::string short_name = font::truncate_text(cal.name, 70, 1, false);
-        const int item_w = 10 + font::measure_text(short_name, 1, false) + 10;
+        const std::string short_name = font::truncate_text(cal.name, 62, 1, false);
+        const int item_w = 10 + font::measure_text(short_name, 1, false) + 8;
         if (lx + item_w > hint_x - 8) break;
         const Color c = to_frame_color(cal.color);
-        f.rect(lx, 286, 7, 7, c);
-        if (cal.color == CalendarColor::Yellow) {
-            f.rect(lx, 286, 7, 1, Color::Black);
-            f.rect(lx, 292, 7, 1, Color::Black);
-            f.rect(lx, 286, 1, 7, Color::Black);
-            f.rect(lx + 6, 286, 1, 7, Color::Black);
+        if (is_outline_color(cal.color)) {
+            const int bw = (c == Color::Yellow) ? 2 : 1;
+            f.rect(lx, 286, 7, bw, c);
+            f.rect(lx, 293 - bw, 7, bw, c);
+            f.rect(lx, 286, bw, 7, c);
+            f.rect(lx + 7 - bw, 286, bw, 7, c);
+        } else {
+            f.rect(lx, 286, 7, 7, c);
+            if (cal.color == CalendarColor::Yellow) {
+                f.rect(lx, 286, 7, 1, Color::Black);
+                f.rect(lx, 292, 7, 1, Color::Black);
+                f.rect(lx, 286, 1, 7, Color::Black);
+                f.rect(lx + 6, 286, 1, 7, Color::Black);
+            }
         }
         font::draw_text(f, lx + 10, 285, short_name, Color::Black, 1, false);
         lx += item_w;
