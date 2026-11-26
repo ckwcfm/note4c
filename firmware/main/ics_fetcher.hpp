@@ -15,7 +15,7 @@ struct CalendarFetchStatus {
     int http_status = 0;
     size_t bytes = 0;
     size_t vevents = 0;
-    std::array<size_t, IcsParser::kNumDays> day_counts{};
+    std::array<size_t, IcsParser::kMaxDays> day_counts{};
     std::string error;
 };
 
@@ -24,11 +24,12 @@ struct SyncReport {
     bool time_ok = false;
     int64_t utc_now = 0;
     CivilDate today{};
+    int display_days = 3;
     int local_hour = 0;
     int local_minute = 0;
     int local_second = 0;
     std::vector<CalendarFetchStatus> calendars;
-    std::array<std::vector<CalendarEvent>, IcsParser::kNumDays> days{};
+    std::array<std::vector<CalendarEvent>, IcsParser::kMaxDays> days{};
     int error_count = 0;
 };
 

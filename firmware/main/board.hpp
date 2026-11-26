@@ -31,7 +31,11 @@ public:
     void init();
     bool pressed(Button button) const;
     bool charging() const { return gpio_get_level(pin::charge)==0; }
+    bool charge_full() const { return gpio_get_level(pin::full)==1; }
     bool usb_host_connected() const;
+    bool external_power_connected() const {
+        return usb_host_connected() || charging() || charge_full();
+    }
     void led(bool on) { gpio_set_level(pin::led,on ? 0 : 1); }
     bool read_rtc(RtcTime& time); // Refuses RTC low-voltage flag.
     bool write_rtc(const RtcTime& time); // Writes UTC time to PCF8563, clearing VL flag.

@@ -74,12 +74,15 @@ void draw_battery_icon(Frame& f, int x, int y, int pct, bool charging) {
     }
 }
 
-void draw_event_row(Frame& f, int y, const CalendarEvent& ev) {
+void draw_event_row(Frame& f, int y, const CalendarEvent& ev, bool compact, int more_badge = 0) {
     const Color bar_color = to_frame_color(ev.color);
-    // Left color indicator bar (4x14)
-    f.rect(10, y + 1, 4, 14, bar_color);
+    const int top = compact ? y : (y + 1);
+    const int badge_h = compact ? 13 : 14;
+    const int text_y = compact ? (y + 2) : (y + 4);
+    // Left color indicator bar
+    f.rect(10, top, 4, badge_h, bar_color);
 
-    // Time badge (x=18..72, w=54, h=14)
+    // Time badge (x=18..72, w=54)
     std::string time_str;
     if (ev.all_day) {
         time_str = "ALL DAY";
@@ -91,51 +94,66 @@ void draw_event_row(Frame& f, int y, const CalendarEvent& ev) {
 
     const int badge_x = 18;
     const int badge_w = 54;
-    const int badge_h = 14;
     if (ev.color == CalendarColor::Yellow) {
-        f.rect(badge_x, y + 1, badge_w, badge_h, Color::Yellow);
+        f.rect(badge_x, top, badge_w, badge_h, Color::Yellow);
         const int tw = font::measure_text(time_str, 1, true);
-        font::draw_text(f, badge_x + (badge_w - tw) / 2, y + 4, time_str, Color::Black, 1, true);
+        font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::Black, 1, true);
     } else if (ev.color == CalendarColor::Red) {
-        f.rect(badge_x, y + 1, badge_w, badge_h, Color::Red);
+        f.rect(badge_x, top, badge_w, badge_h, Color::Red);
         const int tw = font::measure_text(time_str, 1, true);
-        font::draw_text(f, badge_x + (badge_w - tw) / 2, y + 4, time_str, Color::White, 1, true);
+        font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::White, 1, true);
     } else {
         if (ev.all_day) {
-            f.rect(badge_x, y + 1, badge_w, badge_h, Color::Black);
+            f.rect(badge_x, top, badge_w, badge_h, Color::Black);
             const int tw = font::measure_text(time_str, 1, true);
-            font::draw_text(f, badge_x + (badge_w - tw) / 2, y + 4, time_str, Color::White, 1, true);
+            font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::White, 1, true);
         } else {
-            f.rect(badge_x, y + 1, badge_w, 1, Color::Black);
-            f.rect(badge_x, y + badge_h, badge_w, 1, Color::Black);
-            f.rect(badge_x, y + 1, 1, badge_h, Color::Black);
-            f.rect(badge_x + badge_w - 1, y + 1, 1, badge_h, Color::Black);
+            f.rect(badge_x, top, badge_w, 1, Color::Black);
+            f.rect(badge_x, top + badge_h - 1, badge_w, 1, Color::Black);
+            f.rect(badge_x, top, 1, badge_h, Color::Black);
+            f.rect(badge_x + badge_w - 1, top, 1, badge_h, Color::Black);
             const int tw = font::measure_text(time_str, 1, true);
-            font::draw_text(f, badge_x + (badge_w - tw) / 2, y + 4, time_str, Color::Black, 1, true);
+            font::draw_text(f, badge_x + (badge_w - tw) / 2, text_y, time_str, Color::Black, 1, true);
         }
     }
 
-    // Event title (x=80..390)
+    // Event title (x=80..390), reserving space on right for (+N) if single-row overflow
     const int title_x = 80;
-    const int max_w = Frame::width - title_x - 10;
+    int max_w = Frame::width - title_x - 10;
+    if (more_badge > 0) {
+        char mbuf[16];
+        std::snprintf(mbuf, sizeof(mbuf), "+%d", more_badge);
+        const int mw = font::measure_text(mbuf, 1, true);
+        font::draw_text(f, Frame::width - 10 - mw, text_y, mbuf, Color::Red, 1, true);
+        max_w -= mw + 6;
+    }
     const std::string clipped = font::truncate_text(ev.title, max_w, 1, false);
-    font::draw_text(f, title_x, y + 4, clipped, Color::Black, 1, false);
+    font::draw_text(f, title_x, text_y, clipped, Color::Black, 1, false);
 }
 
 void draw_section_header(Frame& f, int y, std::string_view label,
-                         std::string_view date_str, Color accent) {
+                         std::string_view date_str, Color accent,
+                         bool compact, bool empty_inline) {
     const int pill_w = font::measure_text(label, 1, true) + 10;
-    f.rect(10, y, pill_w, 14, accent);
+    const int pill_h = compact ? 13 : 14;
+    const int text_y = compact ? (y + 2) : (y + 3);
+    const int rule_y = compact ? (y + 14) : (y + 16);
+    f.rect(10, y, pill_w, pill_h, accent);
     const Color fg = (accent == Color::Yellow) ? Color::Black : Color::White;
-    font::draw_text(f, 15, y + 3, label, fg, 1, true);
-    font::draw_text(f, 10 + pill_w + 7, y + 3, date_str, Color::Black, 1, true);
-    f.rect(10, y + 16, Frame::width - 20, 1, Color::Black);
+    font::draw_text(f, 15, text_y, label, fg, 1, true);
+    font::draw_text(f, 10 + pill_w + 7, text_y, date_str, Color::Black, 1, true);
+    if (empty_inline) {
+        const std::string_view empty_lbl = "No events";
+        const int ew = font::measure_text(empty_lbl, 1, false);
+        font::draw_text(f, Frame::width - 10 - ew, text_y, empty_lbl, Color::Black, 1, false);
+    }
+    f.rect(10, rule_y, Frame::width - 20, 1, Color::Black);
 }
 
 } // namespace
 
 void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
-                                   const std::array<std::vector<CalendarEvent>, IcsParser::kNumDays>& days,
+                                   const std::array<std::vector<CalendarEvent>, IcsParser::kMaxDays>& days,
                                    Frame& f) const {
     f.clear(Color::White);
 
@@ -182,22 +200,36 @@ void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
         font::draw_text(f, right_x, 12, sbuf, Color::Yellow, 1, false);
     }
 
-    // Dynamic 3-day slot allocation in y=38..276 (238 px)
-    // 3 headers x 19px = 57px, 2 section gaps x 5px = 10px -> 171px for rows (17px/row = 10 slots)
-    constexpr int kRowH = 17;
-    constexpr int kHeaderH = 19;
-    constexpr int kGapH = 5;
-    constexpr int kTotalSlots = 10;
+    // Dynamic N-day (1..7) slot allocation in y=39..277 (238 px)
+    const int num_days = std::clamp(status.display_days, 1, IcsParser::kMaxDays);
+    const bool compact = (num_days >= 6);
+    const int header_h = compact ? 16 : 19;
+    const int row_h = compact ? 15 : 17;
+    const int gap_h = compact ? 2 : 5;
+    constexpr int kContentH = 238;
 
-    int need[3];
-    int slots[3] = {1, 1, 1};
-    for (int i = 0; i < 3; ++i) {
-        need[i] = std::max(1, static_cast<int>(days[static_cast<size_t>(i)].size()));
+    const int headers_and_gaps = num_days * header_h + (num_days - 1) * gap_h;
+    const int total_slots = std::max(num_days, (kContentH - headers_and_gaps) / row_h);
+
+    int need[IcsParser::kMaxDays]{};
+    int slots[IcsParser::kMaxDays]{};
+    int allocated = 0;
+    for (int i = 0; i < num_days; ++i) {
+        const int ev_cnt = static_cast<int>(days[static_cast<size_t>(i)].size());
+        if (compact && ev_cnt == 0) {
+            // In 6-7 day view, empty days render "No events" inline in the header so busy days get more rows
+            need[i] = 0;
+            slots[i] = 0;
+        } else {
+            need[i] = std::max(1, ev_cnt);
+            slots[i] = 1;
+            ++allocated;
+        }
     }
-    int rem = kTotalSlots - 3;
+    int rem = total_slots - allocated;
     while (rem > 0) {
         bool progressed = false;
-        for (int i = 0; i < 3 && rem > 0; ++i) {
+        for (int i = 0; i < num_days && rem > 0; ++i) {
             if (slots[i] < need[i]) {
                 ++slots[i];
                 --rem;
@@ -208,48 +240,54 @@ void CalendarRenderer::draw_agenda(const CalendarViewStatus& status,
     }
 
     const int64_t base_day = days_from_civil(status.today);
-    const CivilDate dates[3] = {
-        status.today,
-        civil_from_days(base_day + 1),
-        civil_from_days(base_day + 2),
-    };
-    const std::string day2_label = format_weekday_upper(dates[1]);
-    const std::string day3_label = format_weekday_upper(dates[2]);
-    const std::string_view labels[3] = {"TODAY", day2_label, day3_label};
-    const Color accents[3] = {Color::Red, Color::Yellow, Color::Black};
-
     int y = 39;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < num_days; ++i) {
+        const CivilDate d = civil_from_days(base_day + i);
+        const std::string label = (i == 0) ? "TODAY" : format_weekday_upper(d);
+        const Color accent = (i == 0) ? Color::Red : (i == 1 ? Color::Yellow : Color::Black);
         std::string day_date;
         if (i == 0) {
-            day_date = format_date_long(dates[i]);
+            day_date = format_date_long(d);
         } else {
             char dbuf[16];
-            std::snprintf(dbuf, sizeof(dbuf), "%s %d", month_short(dates[i].month), dates[i].day);
+            std::snprintf(dbuf, sizeof(dbuf), "%s %d", month_short(d.month), d.day);
             day_date = dbuf;
         }
-        draw_section_header(f, y, labels[i], day_date, accents[i]);
-        y += kHeaderH;
         const auto& evs = days[static_cast<size_t>(i)];
+        const bool empty_inline = compact && evs.empty();
+        draw_section_header(f, y, label, day_date, accent, compact, empty_inline);
+        y += header_h;
+
         if (evs.empty()) {
-            font::draw_text(f, 18, y + 4, "No events", Color::Black, 1, false);
-            y += kRowH;
+            if (!empty_inline) {
+                font::draw_text(f, 18, y + 4, "No events", Color::Black, 1, false);
+                y += row_h;
+            }
         } else {
             const bool overflow = static_cast<int>(evs.size()) > slots[i];
-            const int show_count = overflow ? std::max(1, slots[i] - 1) : static_cast<int>(evs.size());
-            for (int r = 0; r < show_count; ++r) {
-                draw_event_row(f, y, evs[static_cast<size_t>(r)]);
-                y += kRowH;
-            }
-            if (overflow) {
-                const int more = static_cast<int>(evs.size()) - show_count;
-                char mbuf[32];
-                std::snprintf(mbuf, sizeof(mbuf), "+%d more event%s", more, more == 1 ? "" : "s");
-                font::draw_text(f, 18, y + 4, mbuf, Color::Red, 1, true);
-                y += kRowH;
+            if (overflow && (compact || slots[i] <= 1)) {
+                const int show_count = std::max(1, slots[i]);
+                for (int r = 0; r < show_count; ++r) {
+                    const int badge = (r == show_count - 1) ? (static_cast<int>(evs.size()) - show_count) : 0;
+                    draw_event_row(f, y, evs[static_cast<size_t>(r)], compact, badge);
+                    y += row_h;
+                }
+            } else {
+                const int show_count = overflow ? (slots[i] - 1) : static_cast<int>(evs.size());
+                for (int r = 0; r < show_count; ++r) {
+                    draw_event_row(f, y, evs[static_cast<size_t>(r)], compact);
+                    y += row_h;
+                }
+                if (overflow) {
+                    const int more = static_cast<int>(evs.size()) - show_count;
+                    char mbuf[32];
+                    std::snprintf(mbuf, sizeof(mbuf), "+%d more event%s", more, more == 1 ? "" : "s");
+                    font::draw_text(f, 18, y + 4, mbuf, Color::Red, 1, true);
+                    y += row_h;
+                }
             }
         }
-        y += kGapH;
+        y += gap_h;
     }
 
     // Footer bar (y=278..299)

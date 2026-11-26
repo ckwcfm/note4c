@@ -178,7 +178,7 @@ void test_renderer_3day_smoke() {
         {"Personal", "https://example.com/b.ics", CalendarColor::Yellow, true},
         {"Family", "https://example.com/c.ics", CalendarColor::Black, true},
     };
-    std::array<std::vector<CalendarEvent>, 3> days{};
+    std::array<std::vector<CalendarEvent>, IcsParser::kMaxDays> days{};
     days[0] = {
         {"Morning Standup", "Work", CalendarColor::Red, false, 9 * 60 + 30, 10 * 60, false, "", 0, false},
         {"Dentist", "Family", CalendarColor::Black, false, 14 * 60, 15 * 60, false, "", 0, false},
@@ -189,6 +189,13 @@ void test_renderer_3day_smoke() {
     days[2] = {
         {"Weekend Trip", "Personal", CalendarColor::Yellow, true, 0, 0, false, "", 0, false},
         {"Dinner with Friends", "Personal", CalendarColor::Yellow, false, 18 * 60, 20 * 60, false, "", 0, false},
+    };
+    days[4] = {
+        {"Sunday Brunch", "Family", CalendarColor::Black, false, 11 * 60, 12 * 60, false, "", 0, false},
+    };
+    days[6] = {
+        {"Sprint Kickoff", "Work", CalendarColor::Red, false, 10 * 60, 11 * 60, false, "", 0, false},
+        {"Soccer Practice", "Personal", CalendarColor::Yellow, false, 17 * 60, 18 * 60, false, "", 0, false},
     };
 
     Frame f;
@@ -204,9 +211,61 @@ void test_renderer_3day_smoke() {
     CHECK(counts[static_cast<int>(Color::Red)] > 500);
     CHECK(counts[static_cast<int>(Color::Yellow)] > 500);
 
+    // Verify 1-day, 5-day, and 7-day rendering modes all produce valid distinct frames
+    Frame f1, f5, f7;
+    st.display_days = 1;
+    renderer.draw_agenda(st, days, f1);
+    st.display_days = 5;
+    renderer.draw_agenda(st, days, f5);
+    st.display_days = 7;
+    renderer.draw_agenda(st, days, f7);
+    CHECK(f1 != f);
+    CHECK(f5 != f);
+    CHECK(f7 != f);
+
     Frame mf;
-    renderer.draw_manage(true, "NOTE4C-Setup", "http://192.168.4.1", "AA:BB:CC:DD:EE:FF", "v0.2.1 (ota_0)", "", mf);
+    renderer.draw_manage(true, "NOTE4C-Setup", "http://192.168.4.1", "AA:BB:CC:DD:EE:FF", "v0.2.2 (ota_0)", "", mf);
     CHECK(mf != f);
+}
+
+void test_configurable_display_days() {
+    CalendarConfig cfg;
+    cfg.wifi_ssid = "HomeWiFi";
+    cfg.display_days = 7;
+    auto blob = CalendarConfig::encode(cfg);
+    CalendarConfig decoded;
+    CHECK(CalendarConfig::decode(blob.data(), blob.size(), decoded));
+    CHECK(decoded.display_days == 7);
+
+    // Out-of-range sanitize clamping
+    cfg.display_days = 0;
+    CalendarConfig::sanitize(cfg);
+    CHECK(cfg.display_days == 1);
+    cfg.display_days = 15;
+    CalendarConfig::sanitize(cfg);
+    CHECK(cfg.display_days == 7);
+
+    // 7-day ICS parser test: day 0, day 6 included; day 7 excluded
+    const TzRule tz = TzRule::parse_posix("UTC0");
+    const std::string ics =
+        "BEGIN:VCALENDAR\r\n"
+        "BEGIN:VEVENT\r\nUID:d0\r\nDTSTART:20261125T090000Z\r\nDTEND:20261125T100000Z\r\nSUMMARY:Day0\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:d6\r\nDTSTART:20261201T140000Z\r\nDTEND:20261201T150000Z\r\nSUMMARY:Day6\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:d7\r\nDTSTART:20261202T140000Z\r\nDTEND:20261202T150000Z\r\nSUMMARY:Day7Out\r\nEND:VEVENT\r\n"
+        "END:VCALENDAR\r\n";
+    IcsParser p7({2026, 11, 25}, tz, CalendarColor::Red, "Cal", 7);
+    p7.feed(ics);
+    p7.finish();
+    CHECK(p7.num_days() == 7);
+    CHECK(p7.day_events(0).size() == 1);
+    CHECK(p7.day_events(6).size() == 1 && p7.day_events(6)[0].title == "Day6");
+
+    IcsParser p1({2026, 11, 25}, tz, CalendarColor::Red, "Cal", 1);
+    p1.feed(ics);
+    p1.finish();
+    CHECK(p1.num_days() == 1);
+    CHECK(p1.day_events(0).size() == 1);
+    CHECK(p1.day_events(6).empty());
 }
 
 int main() {
@@ -215,6 +274,7 @@ int main() {
     test_timezone_and_dates();
     test_ics_3day_streaming_rrule_and_overrides();
     test_renderer_3day_smoke();
+    test_configurable_display_days();
     std::cout << "All note4c_calendar tests passed!\n";
     return 0;
 }

@@ -10,9 +10,10 @@ ESP-IDF v6.0 / C++17 firmware and host-testable core for the **ZECTRIX NOTE4C PC
 
 ## Features
 
-- **3-day four-color calendar view:** Displays **Today** (Red), **Day 2** (Yellow),
-  and **Day 3** (Black) with dynamic event-row allocation, color-coded time pills,
-  footer calendar legend, Wi-Fi status icon, and calibrated battery percentage + icon.
+- **Configurable 1–7 day four-color calendar view:** Choose 1 to 7 days ahead
+  (default 3 days) with dynamic event-row allocation, compact inline-empty layout
+  for 6–7 day views, color-coded time pills, footer calendar legend, Wi-Fi status
+  icon, and calibrated battery percentage + icon.
 - **Direct `.ics` / `webcal://` subscriptions:** Subscribe to up to 8 iCal feeds
   (Google Calendar secret iCal address, Apple iCloud, Outlook, TeamSnap, Nextcloud)
   and pick **Black**, **Red**, or **Yellow** for each calendar.
@@ -42,6 +43,8 @@ ESP-IDF v6.0 / C++17 firmware and host-testable core for the **ZECTRIX NOTE4C PC
 
 - **Confirm (short):** On calendar view, sync calendars now; on Manage screen,
   exit back to the 3-day calendar without forcing a sync.
+- **Confirm (hold 3 s, then release):** Restart the device cleanly (LED blinks
+  rapidly once armed; also available via **Restart Device** in the web UI).
 - **Down (short):** Open the Manage screen (shows LAN IP, Wi-Fi MAC, and current
   firmware version & slot).
 - **Down (long):** Force the `NOTE4C-Setup` Wi-Fi setup hotspot.

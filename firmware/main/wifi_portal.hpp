@@ -31,6 +31,9 @@ public:
 
     bool is_sta_connected() const { return sta_connected_.load(std::memory_order_acquire); }
     bool is_ap_active() const { return ap_active_.load(std::memory_order_acquire); }
+    bool wants_sta() const { return auto_reconnect_.load(std::memory_order_acquire); }
+    bool take_ip_updated() { return ip_updated_.exchange(false, std::memory_order_acq_rel); }
+    void poll_reconnect(uint64_t now_ms);
     std::string ip_address() const;
 
 private:
@@ -49,7 +52,11 @@ private:
 
     std::atomic<bool> sta_connected_{false};
     std::atomic<bool> ap_active_{false};
+    std::atomic<bool> auto_reconnect_{false};
+    std::atomic<bool> ip_updated_{false};
     std::atomic<bool> dns_running_{false};
+    uint64_t next_reconnect_ms_ = 0;
+    uint32_t reconnect_attempts_ = 0;
     TaskHandle_t dns_task_ = nullptr;
     int dns_sock_ = -1;
     std::string ip_str_;

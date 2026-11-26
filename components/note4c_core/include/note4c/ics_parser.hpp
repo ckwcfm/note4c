@@ -83,15 +83,18 @@ void sort_calendar_events(std::vector<CalendarEvent>& events);
 
 class IcsParser {
 public:
-    static constexpr int kNumDays = 3;
+    static constexpr int kMaxDays = 7;
+    static constexpr int kNumDays = kMaxDays; // Back-compat alias for array capacity
     static constexpr size_t kMaxEventsPerDay = 64;
 
     IcsParser(CivilDate today, const TzRule& local_tz,
-              CalendarColor color, std::string calendar_name);
+              CalendarColor color, std::string calendar_name,
+              int num_days = 3);
 
     void feed(std::string_view chunk);
     void finish();
 
+    int num_days() const { return num_days_; }
     const std::vector<CalendarEvent>& day_events(int day_index) const {
         return days_[static_cast<size_t>(day_index)];
     }
@@ -169,7 +172,8 @@ private:
 
     CivilDate today_;
     int64_t today_day_num_ = 0;
-    std::array<int64_t, kNumDays + 1> day_bounds_utc_{};
+    int num_days_ = 3;
+    std::array<int64_t, kMaxDays + 1> day_bounds_utc_{};
     TzRule local_tz_;
     CalendarColor color_;
     std::string calendar_name_;
@@ -185,7 +189,7 @@ private:
     VTimezoneBuilder current_vtz_{};
     std::unordered_map<std::string, TzRule> vtimezones_;
 
-    std::array<std::vector<CalendarEvent>, kNumDays> days_{};
+    std::array<std::vector<CalendarEvent>, kMaxDays> days_{};
     std::unordered_set<std::string> overridden_keys_;
     size_t vevents_seen_ = 0;
 };

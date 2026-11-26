@@ -24,10 +24,15 @@ void Board::init() {
     output(pin::audio_power,false); output(pin::led,true);
     gpio_deep_sleep_hold_dis();
     gpio_config_t inputs{};
-    inputs.pin_bit_mask=(1ULL<<pin::confirm)|(1ULL<<pin::up)|(1ULL<<pin::down)|
-                       (1ULL<<pin::charge)|(1ULL<<pin::full);
+    inputs.pin_bit_mask=(1ULL<<pin::confirm)|(1ULL<<pin::up)|(1ULL<<pin::down);
     inputs.mode=GPIO_MODE_INPUT; inputs.pull_up_en=GPIO_PULLUP_ENABLE;
     ESP_ERROR_CHECK(gpio_config(&inputs));
+    gpio_config_t charge_pins{};
+    charge_pins.pin_bit_mask=(1ULL<<pin::charge)|(1ULL<<pin::full);
+    charge_pins.mode=GPIO_MODE_INPUT;
+    charge_pins.pull_up_en=GPIO_PULLUP_DISABLE;
+    charge_pins.pull_down_en=GPIO_PULLDOWN_DISABLE;
+    ESP_ERROR_CHECK(gpio_config(&charge_pins));
     i2c_master_bus_config_t bus{};
     bus.i2c_port=I2C_NUM_0; bus.sda_io_num=pin::sda; bus.scl_io_num=pin::scl;
     bus.clk_source=I2C_CLK_SRC_DEFAULT; bus.glitch_ignore_cnt=7;

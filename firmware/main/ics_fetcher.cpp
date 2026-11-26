@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_sntp.h"
 #include "esp_tls_errors.h"
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
 #include <memory>
@@ -102,14 +103,16 @@ SyncReport sync_all_calendars(const CalendarConfig& cfg, Board& board) {
 
     const TzRule local_tz = TzRule::parse_posix(cfg.timezone);
     const LocalDateTime loc = local_tz.utc_to_local(report.utc_now);
+    const int display_days = std::clamp(static_cast<int>(cfg.display_days), 1, IcsParser::kMaxDays);
     report.today = {loc.year, loc.month, loc.day};
+    report.display_days = display_days;
     report.local_hour = loc.hour;
     report.local_minute = loc.minute;
     report.local_second = loc.second;
 
-    ESP_LOGI(kTag, "Local date %04d-%02d-%02d %02d:%02d (TZ=%s), fetching %u calendars",
+    ESP_LOGI(kTag, "Local date %04d-%02d-%02d %02d:%02d (TZ=%s), fetching %u calendars (%d days)",
              loc.year, loc.month, loc.day, loc.hour, loc.minute,
-             cfg.timezone.c_str(), static_cast<unsigned>(cfg.calendars.size()));
+             cfg.timezone.c_str(), static_cast<unsigned>(cfg.calendars.size()), display_days);
 
     for (const auto& cal : cfg.calendars) {
         if (!cal.enabled) continue;
@@ -124,7 +127,7 @@ SyncReport sync_all_calendars(const CalendarConfig& cfg, Board& board) {
             continue;
         }
 
-        auto parser = std::make_unique<IcsParser>(report.today, local_tz, cal.color, cal.name);
+        auto parser = std::make_unique<IcsParser>(report.today, local_tz, cal.color, cal.name, display_days);
         StreamCtx ctx{parser.get(), 0, 0, ESP_OK, 0, 0};
 
         ESP_LOGI(kTag, "Fetching '%s' (free internal=%u, psram=%u)",
@@ -178,17 +181,17 @@ SyncReport sync_all_calendars(const CalendarConfig& cfg, Board& board) {
             parser->finish();
             st.ok = true;
             st.vevents = parser->vevents_seen();
-            for (int d = 0; d < IcsParser::kNumDays; ++d) {
+            size_t total_ev = 0;
+            for (int d = 0; d < display_days; ++d) {
                 const auto& evs = parser->day_events(d);
                 st.day_counts[static_cast<size_t>(d)] = evs.size();
+                total_ev += evs.size();
                 for (const auto& ev : evs) report.days[static_cast<size_t>(d)].push_back(ev);
             }
-            ESP_LOGI(kTag, "Calendar '%s': %u bytes, %u VEVENTs -> %u/%u/%u (3 days)",
+            ESP_LOGI(kTag, "Calendar '%s': %u bytes, %u VEVENTs -> %u events across %d day(s)",
                      cal.name.c_str(), static_cast<unsigned>(st.bytes),
                      static_cast<unsigned>(st.vevents),
-                     static_cast<unsigned>(st.day_counts[0]),
-                     static_cast<unsigned>(st.day_counts[1]),
-                     static_cast<unsigned>(st.day_counts[2]));
+                     static_cast<unsigned>(total_ev), display_days);
         }
         report.calendars.push_back(std::move(st));
     }

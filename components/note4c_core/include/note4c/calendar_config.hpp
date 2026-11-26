@@ -50,7 +50,7 @@ struct CalendarSub {
 };
 
 struct CalendarConfig {
-    static constexpr uint32_t kVersion = 2;
+    static constexpr uint32_t kVersion = 3;
     static constexpr size_t kMaxCalendars = 8;
     static constexpr size_t kMaxSsidLen = 32;
     static constexpr size_t kMaxPassLen = 63;
@@ -59,6 +59,8 @@ struct CalendarConfig {
     static constexpr size_t kMaxUrlLen = 320;
     static constexpr uint16_t kMinIntervalMin = 15;
     static constexpr uint16_t kMaxIntervalMin = 1440;
+    static constexpr uint8_t kMinDisplayDays = 1;
+    static constexpr uint8_t kMaxDisplayDays = 7;
 
     std::string wifi_ssid;
     std::string wifi_password;
@@ -66,6 +68,7 @@ struct CalendarConfig {
     uint8_t sync_hour = 5;
     uint8_t sync_minute = 0;
     uint16_t sync_interval_minutes = 1440; // 1440 = once a day
+    uint8_t display_days = 3;              // 1..7 days to sync & display
     std::vector<CalendarSub> calendars;
 
     bool has_wifi() const { return !wifi_ssid.empty(); }
@@ -77,13 +80,14 @@ struct CalendarConfig {
                sync_hour == o.sync_hour &&
                sync_minute == o.sync_minute &&
                sync_interval_minutes == o.sync_interval_minutes &&
+               display_days == o.display_days &&
                calendars == o.calendars;
     }
 
     static std::string normalize_url(std::string_view url);
     static void sanitize(CalendarConfig& cfg);
     static std::vector<uint8_t> encode(const CalendarConfig& cfg);
-    // Decodes both v1 (defaults sync_interval_minutes=1440) and v2 blobs.
+    // Decodes v1, v2, and v3 blobs cleanly with backward-compatible defaults.
     static bool decode(const uint8_t* data, size_t len, CalendarConfig& out);
 
     // Compute seconds until next scheduled sync anchored at target_hour:target_min

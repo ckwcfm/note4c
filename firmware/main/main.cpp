@@ -12,6 +12,7 @@
 #include "esp_ota_ops.h"
 #include "esp_psram.h"
 #include "esp_system.h"
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <new>
@@ -433,9 +434,10 @@ extern "C" void app_main() {
 
     const WakeReason wake = board.wake_reason();
     const bool down_held = board.pressed(Button::Down);
-    ESP_LOGI(kTag, "Wake reason=%d, down_held=%d, usb=%d, charging=%d",
+    ESP_LOGI(kTag, "Wake reason=%d, down_held=%d, usb=%d, chg=%d, full=%d, ext_pwr=%d",
              static_cast<int>(wake), down_held ? 1 : 0,
-             board.usb_host_connected() ? 1 : 0, board.charging() ? 1 : 0);
+             board.usb_host_connected() ? 1 : 0, board.charging() ? 1 : 0,
+             board.charge_full() ? 1 : 0, board.external_power_connected() ? 1 : 0);
 
     // Kick off initial background task immediately (main loop never freezes!)
     if (!web_state.config.has_wifi()) {
@@ -447,13 +449,43 @@ extern "C" void app_main() {
     }
 
     Buttons buttons;
+    bool ok_holding = false;
+    Millis ok_hold_start = 0;
+    bool ok_reboot_armed = false;
     for (;;) {
         const auto now = now_ms();
         engine.display.tick(now);
 
-        // LED: solid when e-paper refreshing/faulted, blinking during background sync, off when idle
         const bool syncing_now = app.worker_busy.load(std::memory_order_acquire);
-        if (engine.display.busy() || engine.display.faulted()) {
+        // Keep STA Wi-Fi alive while awake by auto-reconnecting if router drops us
+        if (!syncing_now && !web.ota_in_progress()) {
+            wifi.poll_reconnect(now);
+            if (wifi.take_ip_updated()) {
+                xSemaphoreTake(state_mutex, portMAX_DELAY);
+                web_state.ip_address = wifi.ip_address();
+                xSemaphoreGive(state_mutex);
+            }
+        }
+
+        // Hold OK (Confirm) for 3 seconds, then release to cleanly restart the device
+        if (!web.ota_in_progress()) {
+            if (board.pressed(Button::Confirm)) {
+                if (!ok_holding) {
+                    ok_holding = true;
+                    ok_hold_start = now;
+                } else if (!ok_reboot_armed && (now - ok_hold_start >= 3000ULL)) {
+                    ok_reboot_armed = true;
+                    ESP_LOGI(kTag, "OK held 3s; release OK button to restart...");
+                }
+            } else {
+                ok_holding = false;
+            }
+        }
+
+        // LED: rapid blink when 3s OK restart is armed, solid when e-paper busy/faulted, slow blink during sync
+        if (ok_reboot_armed) {
+            board.led(((now / 80) % 2) == 0);
+        } else if (engine.display.busy() || engine.display.faulted()) {
             board.led(true);
         } else if (syncing_now) {
             board.led(((now / 250) % 2) == 0);
@@ -555,6 +587,7 @@ extern "C" void app_main() {
             } else {
                 CalendarViewStatus st;
                 st.today = rep.today;
+                st.display_days = std::clamp(rep.display_days, 1, static_cast<int>(IcsParser::kMaxDays));
                 st.sync_hour = rep.local_hour;
                 st.sync_minute = rep.local_minute;
                 st.wifi_connected = rep.wifi_ok;
@@ -586,13 +619,15 @@ extern "C" void app_main() {
             idle_since_ms = now;
         }
 
-        // Reboot after verified OTA (wait until any active e-paper refresh completes safely)
+        // Reboot after verified OTA, Web UI Restart button, or 3s OK hold (after OK released & display idle)
         xSemaphoreTake(state_mutex, portMAX_DELAY);
         const bool gh_ota_reboot = web_state.ota_reboot;
         xSemaphoreGive(state_mutex);
-        if (!engine.display.busy() && (gh_ota_reboot || (web.running() && web.take_reboot_request()))) {
-            ESP_LOGI(kTag, "OTA complete; rebooting into new firmware slot...");
-            vTaskDelay(pdMS_TO_TICKS(1500));
+        const bool btn_reboot_ready = ok_reboot_armed && !board.pressed(Button::Confirm);
+        if (!engine.display.busy() &&
+            (btn_reboot_ready || gh_ota_reboot || (web.running() && web.take_reboot_request()))) {
+            ESP_LOGI(kTag, "Restarting NOTE4C...");
+            vTaskDelay(pdMS_TO_TICKS(btn_reboot_ready ? 200 : 1200));
             web.stop();
             wifi.stop();
             esp_restart();
@@ -631,9 +666,10 @@ extern "C" void app_main() {
             }
         }
 
+        const bool ext_power = board.external_power_connected();
         if (app.in_manage_mode.load(std::memory_order_acquire)) {
             if (!web.ota_in_progress() &&
-                !board.usb_host_connected() &&
+                !ext_power &&
                 !syncing_now &&
                 now - web.last_activity_ms() >= kManageTimeoutMs) {
                 web.stop();
@@ -657,7 +693,7 @@ extern "C" void app_main() {
                 }
             }
         } else {
-            // Outside Manage screen: sleep on battery after idle/web grace window, or auto-sync on USB timer
+            // Outside Manage screen: sleep on battery after idle/web grace window, or auto-sync on USB power timer
             const bool settled = !syncing_now &&
                                  !web.ota_in_progress() &&
                                  !has_pending_job(app) &&
@@ -671,12 +707,12 @@ extern "C" void app_main() {
                 const bool battery_idle_elapsed =
                     force_sleep_now ||
                     (!recent_web && (now - idle_since_ms >= kBatteryIdleBeforeSleepMs));
-                if (!board.usb_host_connected() && battery_idle_elapsed) {
+                if (!ext_power && battery_idle_elapsed) {
                     web.stop();
                     wifi.stop();
                     board.deep_sleep(next_sleep_sec);
                 }
-                if (board.usb_host_connected() &&
+                if (ext_power &&
                     now - last_sync_ms >= static_cast<Millis>(next_sleep_sec) * 1000ULL) {
                     last_sync_ms = now;
                     enqueue_job(app, {NetJobKind::Sync, true, false, ""});

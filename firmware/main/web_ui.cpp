@@ -3,6 +3,7 @@
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -304,6 +305,18 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
         </select>
       </div>
       <div>
+        <label for="displayDays">Days to Sync</label>
+        <select id="displayDays">
+          <option value="1">1 day (Today only)</option>
+          <option value="2">2 days</option>
+          <option value="3" selected>3 days (Default)</option>
+          <option value="4">4 days</option>
+          <option value="5">5 days</option>
+          <option value="6">6 days</option>
+          <option value="7">7 days (1 week)</option>
+        </select>
+      </div>
+      <div>
         <label for="syncInterval">Sync Frequency</label>
         <select id="syncInterval" onchange="updateScheduleHint()">
           <option value="30">Every 30 minutes</option>
@@ -345,6 +358,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600
       <button class="btn btn-primary" onclick="saveConfig(false)">Save Settings</button>
       <button class="btn btn-accent" onclick="saveConfig(true)">Save &amp; Sync Now</button>
       <button class="btn btn-ghost" onclick="finishSleep()">Finish &amp; Sleep</button>
+      <button class="btn btn-ghost" onclick="restartDevice()">Restart Device</button>
     </div>
     <div id="statusBox" class="status">Ready.</div>
   </div>
@@ -528,6 +542,9 @@ async function loadAll() {
     const ivSel = document.getElementById('syncInterval');
     const ivVal = String(d.sync_interval_minutes ?? 1440);
     ivSel.value = [...ivSel.options].some(o => o.value === ivVal) ? ivVal : '1440';
+    const daySel = document.getElementById('displayDays');
+    const dayVal = String(d.display_days ?? 3);
+    daySel.value = [...daySel.options].some(o => o.value === dayVal) ? dayVal : '3';
     updateScheduleHint();
     cals = (d.calendars || []).map(x => ({ name: x.name||'', url: x.url||'', color: x.color||'black', enabled: x.enabled!==false }));
     renderCals();
@@ -542,9 +559,13 @@ function showSyncSummary(d) {
   updateBadges(d);
   if (d.syncing) { setStatus('Syncing calendars in background & updating e-paper display...', ''); return; }
   if (d.last_sync && d.last_sync.ran) {
-    const lines = ['Last sync: ' + d.last_sync.date + ' ' + d.last_sync.time + ' (' + d.last_sync.today_total + ' today, ' + d.last_sync.tomorrow_total + ' tomorrow, ' + (d.last_sync.day3_total ?? 0) + ' day 3)'];
+    const nd = d.last_sync.display_days || 3;
+    const dtot = d.last_sync.day_totals || [d.last_sync.today_total ?? 0, d.last_sync.tomorrow_total ?? 0, d.last_sync.day3_total ?? 0];
+    const sum = dtot.reduce((a, b) => a + b, 0);
+    const lines = ['Last sync: ' + d.last_sync.date + ' ' + d.last_sync.time + ' (' + sum + ' events across ' + nd + ' day' + (nd === 1 ? '' : 's') + ': ' + dtot.join(' / ') + ')'];
     for (const c of (d.last_sync.calendars || [])) {
-      lines.push(' - ' + c.name + ': ' + (c.ok ? (c.today + ' / ' + c.tomorrow + ' / ' + (c.day3 ?? 0) + ' events (3d)') : ('ERROR: ' + c.error)));
+      const cc = c.day_counts ? c.day_counts.join(' / ') : (c.today + ' / ' + c.tomorrow + ' / ' + (c.day3 ?? 0));
+      lines.push(' - ' + c.name + ': ' + (c.ok ? (cc + ' events (' + nd + 'd)') : ('ERROR: ' + c.error)));
     }
     setStatus(lines.join('\n'), d.last_sync.errors > 0 ? 'err' : 'ok');
   } else if (d.status_message) {
@@ -582,6 +603,7 @@ async function saveConfig(andSync) {
     sync_hour: parseInt(t[0] || '5', 10),
     sync_minute: parseInt(t[1] || '0', 10),
     sync_interval_minutes: parseInt(document.getElementById('syncInterval').value || '1440', 10),
+    display_days: parseInt(document.getElementById('displayDays').value || '3', 10),
     calendars: cals.filter(c => c.url.trim().length > 0).map(c => ({
       name: c.name.trim() || 'Calendar',
       url: c.url.trim(),
@@ -646,6 +668,12 @@ function copyMac() {
 async function finishSleep() {
   setStatus('Exiting manage mode and entering daily battery sleep...', 'ok');
   try { await fetch('/api/sleep', { method: 'POST' }); } catch (_) {}
+}
+
+async function restartDevice() {
+  if (!confirm('Restart NOTE4C now?')) return;
+  setStatus('Restarting NOTE4C... reconnect in ~10 seconds.', 'ok');
+  try { await fetch('/api/reboot', { method: 'POST' }); } catch (_) {}
 }
 
 function setOtaStatus(msg, cls) {
@@ -882,6 +910,7 @@ bool WebUiServer::start() {
     reg("/api/sync", HTTP_POST, handle_sync);
     reg("/api/status", HTTP_GET, handle_status);
     reg("/api/sleep", HTTP_POST, handle_sleep);
+    reg("/api/reboot", HTTP_POST, handle_reboot);
     reg("/api/ota", HTTP_POST, handle_ota);
     reg("/api/ota-check", HTTP_GET, handle_ota_check);
     reg("/api/ota-github", HTTP_POST, handle_ota_github);
@@ -953,6 +982,8 @@ std::string WebUiServer::build_status_json(bool include_config) {
         out += std::to_string(state_.config.sync_minute);
         out += ",\"sync_interval_minutes\":";
         out += std::to_string(state_.config.sync_interval_minutes);
+        out += ",\"display_days\":";
+        out += std::to_string(state_.config.display_days);
         out += ",\"calendars\":[";
         for (size_t i = 0; i < state_.config.calendars.size(); ++i) {
             if (i > 0) out.push_back(',');
@@ -982,13 +1013,21 @@ std::string WebUiServer::build_status_json(bool include_config) {
         out += json_escape(dbuf);
         out += ",\"time\":";
         out += json_escape(tbuf);
+        const int nd = std::clamp(state_.last_sync.display_days, 1, static_cast<int>(IcsParser::kMaxDays));
+        out += ",\"display_days\":";
+        out += std::to_string(nd);
         out += ",\"today_total\":";
         out += std::to_string(state_.last_sync.days[0].size());
         out += ",\"tomorrow_total\":";
         out += std::to_string(state_.last_sync.days[1].size());
         out += ",\"day3_total\":";
         out += std::to_string(state_.last_sync.days[2].size());
-        out += ",\"errors\":";
+        out += ",\"day_totals\":[";
+        for (int d = 0; d < nd; ++d) {
+            if (d > 0) out.push_back(',');
+            out += std::to_string(state_.last_sync.days[static_cast<size_t>(d)].size());
+        }
+        out += "],\"errors\":";
         out += std::to_string(state_.last_sync.error_count);
         out += ",\"calendars\":[";
         for (size_t i = 0; i < state_.last_sync.calendars.size(); ++i) {
@@ -1004,7 +1043,12 @@ std::string WebUiServer::build_status_json(bool include_config) {
             out += std::to_string(cs.day_counts[1]);
             out += ",\"day3\":";
             out += std::to_string(cs.day_counts[2]);
-            out += ",\"error\":";
+            out += ",\"day_counts\":[";
+            for (int d = 0; d < nd; ++d) {
+                if (d > 0) out.push_back(',');
+                out += std::to_string(cs.day_counts[static_cast<size_t>(d)]);
+            }
+            out += "],\"error\":";
             out += json_escape(cs.error);
             out.push_back('}');
         }
@@ -1106,6 +1150,9 @@ esp_err_t WebUiServer::handle_post_config(httpd_req_t* req) {
     if (const auto* j = root.get("sync_interval_minutes"); j && j->type == JsonVal::Type::Number) {
         updated.sync_interval_minutes = static_cast<uint16_t>(j->n);
     }
+    if (const auto* j = root.get("display_days"); j && j->type == JsonVal::Type::Number) {
+        updated.display_days = static_cast<uint8_t>(j->n);
+    }
     if (const auto* arr = root.get("calendars"); arr && arr->type == JsonVal::Type::Array) {
         updated.calendars.clear();
         for (const auto& item : arr->arr) {
@@ -1152,6 +1199,16 @@ esp_err_t WebUiServer::handle_sleep(httpd_req_t* req) {
     auto* self = static_cast<WebUiServer*>(req->user_ctx);
     self->touch_activity();
     self->sleep_requested_.store(true, std::memory_order_release);
+    return send_json(req, R"({"ok":true})");
+}
+
+esp_err_t WebUiServer::handle_reboot(httpd_req_t* req) {
+    auto* self = static_cast<WebUiServer*>(req->user_ctx);
+    self->touch_activity();
+    if (self->ota_in_progress()) {
+        return send_json(req, R"({"ok":false,"error":"OTA update in progress"})", "409 Conflict");
+    }
+    self->reboot_requested_.store(true, std::memory_order_release);
     return send_json(req, R"({"ok":true})");
 }
 

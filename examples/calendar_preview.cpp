@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
         {"Personal", "https://example.com/b.ics", CalendarColor::Yellow, true},
         {"Family", "https://example.com/c.ics", CalendarColor::Black, true},
     };
-    std::array<std::vector<CalendarEvent>, 3> days{};
+    std::array<std::vector<CalendarEvent>, IcsParser::kMaxDays> days{};
     days[0] = {
         {"Engineering Standup", "Work", CalendarColor::Red, false, 9 * 60 + 30, 10 * 60, false, "", 0, false},
         {"Lunch with Alex", "Family", CalendarColor::Black, false, 12 * 60, 13 * 60, false, "", 0, false},
@@ -51,14 +51,25 @@ int main(int argc, char** argv) {
         {"Morning Hike", "Personal", CalendarColor::Yellow, false, 9 * 60, 11 * 60, false, "", 0, false},
         {"Family Dinner", "Work", CalendarColor::Red, false, 18 * 60, 20 * 60, false, "", 0, false},
     };
+    days[4] = {
+        {"Sunday Brunch", "Family", CalendarColor::Black, false, 11 * 60, 12 * 60, false, "", 0, false},
+    };
+    days[6] = {
+        {"Sprint Kickoff", "Work", CalendarColor::Red, false, 10 * 60, 11 * 60, false, "", 0, false},
+        {"Team Sync", "Work", CalendarColor::Red, false, 15 * 60, 16 * 60, false, "", 0, false},
+    };
 
     CalendarRenderer renderer;
-    Frame f_agenda, f_manage;
+    Frame f_agenda, f_agenda_7d, f_manage;
+    st.display_days = 3;
     renderer.draw_agenda(st, days, f_agenda);
-    renderer.draw_manage(false, "HomeWiFi", "http://192.168.1.42", "AA:BB:CC:DD:EE:FF", "v0.2.1 (ota_0)", "Auto-sleep after 10 min on battery", f_manage);
+    st.display_days = 7;
+    renderer.draw_agenda(st, days, f_agenda_7d);
+    renderer.draw_manage(false, "HomeWiFi", "http://192.168.1.42", "AA:BB:CC:DD:EE:FF", "v0.2.2 (ota_0)", "Auto-sleep after 10 min on battery", f_manage);
 
     write_ppm(f_agenda, out_dir + "/calendar_agenda.ppm");
+    write_ppm(f_agenda_7d, out_dir + "/calendar_agenda_7d.ppm");
     write_ppm(f_manage, out_dir + "/calendar_manage.ppm");
-    std::cout << "Wrote 3-day previews to " << out_dir << "\n";
+    std::cout << "Wrote calendar previews to " << out_dir << "\n";
     return 0;
 }

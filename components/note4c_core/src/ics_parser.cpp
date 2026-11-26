@@ -351,13 +351,15 @@ void sort_calendar_events(std::vector<CalendarEvent>& events) {
 }
 
 IcsParser::IcsParser(CivilDate today, const TzRule& local_tz,
-                     CalendarColor color, std::string calendar_name)
+                     CalendarColor color, std::string calendar_name,
+                     int num_days)
     : today_(today),
       today_day_num_(days_from_civil(today)),
+      num_days_(std::clamp(num_days, 1, kMaxDays)),
       local_tz_(local_tz),
       color_(color),
       calendar_name_(std::move(calendar_name)) {
-    for (int i = 0; i <= kNumDays; ++i) {
+    for (int i = 0; i <= num_days_; ++i) {
         const CivilDate d = civil_from_days(today_day_num_ + i);
         day_bounds_utc_[static_cast<size_t>(i)] =
             local_tz_.local_to_utc({d.year, d.month, d.day, 0, 0, 0});
@@ -763,7 +765,7 @@ void IcsParser::emit_occurrence(const PendingEvent& ev, int64_t start_utc, int64
         const int64_t s_day = days_from_civil(start_date);
         int64_t e_day = days_from_civil(end_date);
         if (e_day <= s_day) e_day = s_day + 1;
-        for (int offset = 0; offset < kNumDays; ++offset) {
+        for (int offset = 0; offset < num_days_; ++offset) {
             const int64_t target_day = today_day_num_ + offset;
             if (s_day <= target_day && target_day < e_day) {
                 auto& dst = days_[static_cast<size_t>(offset)];
@@ -787,7 +789,7 @@ void IcsParser::emit_occurrence(const PendingEvent& ev, int64_t start_utc, int64
     // Handle zero-duration point events (e.g. reminders) as overlapping their start instant
     const int64_t eff_end = (end_utc == start_utc) ? start_utc + 1 : end_utc;
 
-    for (int offset = 0; offset < kNumDays; ++offset) {
+    for (int offset = 0; offset < num_days_; ++offset) {
         const int64_t d_start = day_bounds_utc_[static_cast<size_t>(offset)];
         const int64_t d_end = day_bounds_utc_[static_cast<size_t>(offset + 1)];
         if (start_utc < d_end && eff_end > d_start) {
@@ -837,7 +839,7 @@ void IcsParser::expand_rrule(const PendingEvent& ev, int64_t duration_sec) {
 
     // Window bounds in civil days (with margin for multi-day & timezone offsets)
     const int64_t win_lo_day = today_day_num_ - std::max<int64_t>(day_span, 2);
-    const int64_t win_hi_day = today_day_num_ + kNumDays;
+    const int64_t win_hi_day = today_day_num_ + num_days_;
 
     auto resolve_occ_utc = [&](CivilDate occ_d) -> int64_t {
         IcsDateTime inst = ev.dtstart;

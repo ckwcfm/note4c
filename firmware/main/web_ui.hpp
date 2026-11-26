@@ -63,6 +63,7 @@ private:
     static esp_err_t handle_sync(httpd_req_t* req);
     static esp_err_t handle_status(httpd_req_t* req);
     static esp_err_t handle_sleep(httpd_req_t* req);
+    static esp_err_t handle_reboot(httpd_req_t* req);
     static esp_err_t handle_ota(httpd_req_t* req);
     static esp_err_t handle_ota_check(httpd_req_t* req);
     static esp_err_t handle_ota_github(httpd_req_t* req);

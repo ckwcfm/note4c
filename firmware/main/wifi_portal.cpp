@@ -46,6 +46,8 @@ void WifiPortal::event_handler(void* ctx, esp_event_base_t base, int32_t id, voi
             esp_wifi_connect();
         }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        const auto* ev = static_cast<const wifi_event_sta_disconnected_t*>(data);
+        ESP_LOGW(kTag, "Wi-Fi STA disconnected (reason=%d)", ev ? static_cast<int>(ev->reason) : -1);
         self.sta_connected_.store(false, std::memory_order_release);
         if (self.events_) xEventGroupSetBits(self.events_, kBitFailed);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_START) {
@@ -59,7 +61,11 @@ void WifiPortal::event_handler(void* ctx, esp_event_base_t base, int32_t id, voi
         char buf[16]{};
         esp_ip4addr_ntoa(&ev->ip_info.ip, buf, sizeof(buf));
         self.ip_str_ = buf;
+        self.reconnect_attempts_ = 0;
+        self.next_reconnect_ms_ = 0;
         self.sta_connected_.store(true, std::memory_order_release);
+        self.ip_updated_.store(true, std::memory_order_release);
+        ESP_LOGI(kTag, "Wi-Fi STA got IP=%s", buf);
         if (self.events_) xEventGroupSetBits(self.events_, kBitConnected);
     }
 }
@@ -75,12 +81,14 @@ bool WifiPortal::connect_sta(std::string_view ssid, std::string_view password, u
     wifi_config_t cfg{};
     std::memcpy(cfg.sta.ssid, ssid.data(), ssid.size());
     if (!password.empty()) std::memcpy(cfg.sta.password, password.data(), password.size());
-    cfg.sta.threshold.authmode = password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+    cfg.sta.threshold.authmode = password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA_WPA2_PSK;
     cfg.sta.pmf_cfg.capable = true;
+    cfg.sta.pmf_cfg.required = false;
 
     xEventGroupClearBits(events_, kBitConnected | kBitFailed);
     sta_connected_.store(false, std::memory_order_release);
     ap_active_.store(false, std::memory_order_release);
+    auto_reconnect_.store(false, std::memory_order_release);
     ip_str_.clear();
 
     esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
@@ -91,6 +99,8 @@ bool WifiPortal::connect_sta(std::string_view ssid, std::string_view password, u
     if (err != ESP_OK) return false;
 
     if (esp_wifi_start() != ESP_OK) return false;
+    // Disable Wi-Fi modem sleep while awake so routers don't drop idle STA/HTTP sessions.
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
     int retries = 0;
@@ -99,6 +109,9 @@ bool WifiPortal::connect_sta(std::string_view ssid, std::string_view password, u
         const EventBits_t bits = xEventGroupWaitBits(events_, kBitConnected | kBitFailed,
                                                      pdTRUE, pdFALSE, rem);
         if (bits & kBitConnected) {
+            auto_reconnect_.store(true, std::memory_order_release);
+            reconnect_attempts_ = 0;
+            next_reconnect_ms_ = 0;
             ESP_LOGI(kTag, "Connected to Wi-Fi, IP=%s", ip_str_.c_str());
             return true;
         }
@@ -148,12 +161,38 @@ bool WifiPortal::start_ap() {
 }
 
 void WifiPortal::stop() {
+    auto_reconnect_.store(false, std::memory_order_release);
     stop_dns_server();
     if (!initialized_) return;
     esp_wifi_stop();
     sta_connected_.store(false, std::memory_order_release);
     ap_active_.store(false, std::memory_order_release);
+    reconnect_attempts_ = 0;
+    next_reconnect_ms_ = 0;
     ip_str_.clear();
+}
+
+void WifiPortal::poll_reconnect(uint64_t now_ms) {
+    if (!initialized_ ||
+        !auto_reconnect_.load(std::memory_order_acquire) ||
+        ap_active_.load(std::memory_order_acquire) ||
+        sta_connected_.load(std::memory_order_acquire)) {
+        return;
+    }
+    if (next_reconnect_ms_ == 0) {
+        // Wait 3s after first disconnect before reconnecting
+        next_reconnect_ms_ = now_ms + 3000ULL;
+        return;
+    }
+    if (now_ms < next_reconnect_ms_) return;
+
+    ++reconnect_attempts_;
+    const uint64_t backoff = (reconnect_attempts_ <= 3) ? 5000ULL
+                           : (reconnect_attempts_ <= 10) ? 10000ULL : 20000ULL;
+    next_reconnect_ms_ = now_ms + backoff;
+    ESP_LOGI(kTag, "Auto-reconnecting Wi-Fi STA (attempt %lu)...",
+             static_cast<unsigned long>(reconnect_attempts_));
+    esp_wifi_connect();
 }
 
 std::string WifiPortal::ip_address() const {

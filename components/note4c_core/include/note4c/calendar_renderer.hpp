@@ -11,6 +11,7 @@ namespace note4c {
 
 struct CalendarViewStatus {
     CivilDate today{};
+    int display_days = 3; // 1..7 days to show
     int sync_hour = -1;
     int sync_minute = -1;
     bool wifi_connected = false;
@@ -23,7 +24,7 @@ struct CalendarViewStatus {
 class CalendarRenderer {
 public:
     void draw_agenda(const CalendarViewStatus& status,
-                     const std::array<std::vector<CalendarEvent>, IcsParser::kNumDays>& days,
+                     const std::array<std::vector<CalendarEvent>, IcsParser::kMaxDays>& days,
                      Frame& frame) const;
 
     void draw_manage(bool is_ap_mode,

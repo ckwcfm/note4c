@@ -91,6 +91,8 @@ void CalendarConfig::sanitize(CalendarConfig& cfg) {
     if (cfg.sync_minute > 59) cfg.sync_minute = 0;
     if (cfg.sync_interval_minutes < kMinIntervalMin) cfg.sync_interval_minutes = kMinIntervalMin;
     if (cfg.sync_interval_minutes > kMaxIntervalMin) cfg.sync_interval_minutes = kMaxIntervalMin;
+    if (cfg.display_days < kMinDisplayDays) cfg.display_days = kMinDisplayDays;
+    if (cfg.display_days > kMaxDisplayDays) cfg.display_days = kMaxDisplayDays;
     if (cfg.calendars.size() > kMaxCalendars) cfg.calendars.resize(kMaxCalendars);
     for (auto& cal : cfg.calendars) {
         cal.name = trim(cal.name);
@@ -114,6 +116,7 @@ std::vector<uint8_t> CalendarConfig::encode(const CalendarConfig& in) {
     out.push_back(cfg.sync_hour);
     out.push_back(cfg.sync_minute);
     put_u16(out, cfg.sync_interval_minutes);
+    out.push_back(cfg.display_days);
     out.push_back(static_cast<uint8_t>(cfg.calendars.size()));
     for (const auto& cal : cfg.calendars) {
         put_str(out, cal.name, kMaxNameLen);
@@ -129,7 +132,7 @@ bool CalendarConfig::decode(const uint8_t* data, size_t len, CalendarConfig& out
     size_t pos = 0;
     uint32_t magic = 0, ver = 0;
     if (!get_u32(data, len, pos, magic) || magic != kMagic) return false;
-    if (!get_u32(data, len, pos, ver) || (ver != 1 && ver != kVersion)) return false;
+    if (!get_u32(data, len, pos, ver) || ver < 1 || ver > kVersion) return false;
     CalendarConfig parsed;
     if (!get_str(data, len, pos, kMaxSsidLen, parsed.wifi_ssid)) return false;
     if (!get_str(data, len, pos, kMaxPassLen, parsed.wifi_password)) return false;
@@ -142,10 +145,18 @@ bool CalendarConfig::decode(const uint8_t* data, size_t len, CalendarConfig& out
     } else {
         parsed.sync_interval_minutes = 1440;
     }
+    if (ver >= 3) {
+        if (pos + 1 > len) return false;
+        parsed.display_days = data[pos++];
+    } else {
+        parsed.display_days = 3;
+    }
     if (pos + 1 > len) return false;
     const uint8_t count = data[pos++];
     if (parsed.sync_hour > 23 || parsed.sync_minute > 59 || count > kMaxCalendars) return false;
     if (parsed.sync_interval_minutes < kMinIntervalMin || parsed.sync_interval_minutes > kMaxIntervalMin)
+        return false;
+    if (parsed.display_days < kMinDisplayDays || parsed.display_days > kMaxDisplayDays)
         return false;
     parsed.calendars.reserve(count);
     for (uint8_t i = 0; i < count; ++i) {
