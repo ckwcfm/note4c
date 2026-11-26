@@ -779,6 +779,16 @@ extern "C" void app_main() {
                 enqueue_job(app, {NetJobKind::GithubOta, true, false, gh_repo, gh_url});
             } else if (web.take_wifi_changed()) {
                 enqueue_job(app, {NetJobKind::ReconnectWifi, true, false, ""});
+            } else if (web.take_redraw_request()) {
+                app.in_manage_mode.store(false, std::memory_order_release);
+                xSemaphoreTake(state_mutex, portMAX_DELAY);
+                const bool have_data = web_state.has_synced;
+                xSemaphoreGive(state_mutex);
+                if (have_data) {
+                    app.redraw_agenda_ready.store(true, std::memory_order_release);
+                } else {
+                    enqueue_job(app, {NetJobKind::Sync, true, false, ""});
+                }
             } else if (web.take_sync_request()) {
                 xSemaphoreTake(state_mutex, portMAX_DELAY);
                 const bool is_ap = web_state.is_ap_mode;

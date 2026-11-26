@@ -122,7 +122,7 @@ std::string format_event_time(const CalendarEvent& ev, bool use_12h, bool show_e
         if (ev.end_minute >= 24 * 60) return st + "-24:00";
         return st + "-" + format_hhmm(ev.end_minute);
     }
-    // Compact 12-hour range: omit duplicate a/p when start & end share meridiem (e.g. "2:00-3:30p")
+    // Explicit 12-hour range: always show a/p on both start & end (e.g. "4:30p-5:50p", "11:30a-1:00p")
     const int sh24 = std::clamp(ev.start_minute, 0, 1439) / 60;
     const int sm = std::clamp(ev.start_minute, 0, 1439) % 60;
     const int sh12 = (sh24 % 12 == 0) ? 12 : (sh24 % 12);
@@ -134,12 +134,8 @@ std::string format_event_time(const CalendarEvent& ev, bool use_12h, bool show_e
     const int eh24 = std::clamp(ev.end_minute, 0, 1439) / 60;
     const int em = std::clamp(ev.end_minute, 0, 1439) % 60;
     const int eh12 = (eh24 % 12 == 0) ? 12 : (eh24 % 12);
-    if ((sh24 < 12) == (eh24 < 12)) {
-        std::snprintf(buf, sizeof(buf), "%d:%02d-%d:%02d%c", sh12, sm, eh12, em, eh24 < 12 ? 'a' : 'p');
-    } else {
-        std::snprintf(buf, sizeof(buf), "%d:%02d%c-%d:%02d%c",
-                      sh12, sm, sh24 < 12 ? 'a' : 'p', eh12, em, eh24 < 12 ? 'a' : 'p');
-    }
+    std::snprintf(buf, sizeof(buf), "%d:%02d%c-%d:%02d%c",
+                  sh12, sm, sh24 < 12 ? 'a' : 'p', eh12, em, eh24 < 12 ? 'a' : 'p');
     return buf;
 }
 
@@ -179,7 +175,7 @@ void draw_event_row(Frame& f, int y, const CalendarEvent& ev, const CalendarView
     // Time pill supporting 24h/12h, optional end time, and 6 solid/outlined styles
     const std::string time_str = format_event_time(ev, status.use_12h, status.show_end_time);
     const int badge_x = 15;
-    const int badge_w = status.show_end_time ? (status.use_12h ? 86 : 80) : 54;
+    const int badge_w = status.show_end_time ? (status.use_12h ? 90 : 80) : 54;
     const bool bold_time = (time_str.size() <= 7) ||
                            (outlined && accent == Color::Yellow && time_str.size() <= 11);
     const int tw = font::measure_text(time_str, 1, bold_time);

@@ -44,6 +44,7 @@ public:
     bool running() const { return server_ != nullptr; }
 
     bool take_sync_request() { return sync_requested_.exchange(false, std::memory_order_acq_rel); }
+    bool take_redraw_request() { return redraw_requested_.exchange(false, std::memory_order_acq_rel); }
     bool take_sleep_request() { return sleep_requested_.exchange(false, std::memory_order_acq_rel); }
     bool take_wifi_changed() { return wifi_changed_.exchange(false, std::memory_order_acq_rel); }
     bool take_reboot_request() { return reboot_requested_.exchange(false, std::memory_order_acq_rel); }
@@ -79,6 +80,7 @@ private:
     httpd_handle_t server_ = nullptr;
 
     std::atomic<bool> sync_requested_{false};
+    std::atomic<bool> redraw_requested_{false};
     std::atomic<bool> sleep_requested_{false};
     std::atomic<bool> wifi_changed_{false};
     std::atomic<bool> reboot_requested_{false};

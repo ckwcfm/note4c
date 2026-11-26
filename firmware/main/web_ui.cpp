@@ -672,7 +672,8 @@ async function saveConfig(andSync) {
       url: c.url.trim(),
       color: c.color,
       enabled: !!c.enabled
-    }))
+    })),
+    sync: !!andSync
   };
   setStatus('Saving settings...', '');
   try {
@@ -691,9 +692,14 @@ async function saveConfig(andSync) {
       return;
     }
     if (andSync) {
-      await fetch('/api/sync', { method: 'POST' });
+      if (!res.syncing) await fetch('/api/sync', { method: 'POST' });
       setStatus('Saved! Syncing calendars & refreshing screen (takes ~15-25s)...', '');
       pollStatus();
+    } else if (res.syncing) {
+      setStatus('Saved! Syncing updated calendars & refreshing screen (~15-25s)...', '');
+      pollStatus();
+    } else if (res.refreshing) {
+      setStatus('Settings saved! Refreshing e-paper screen (~15s)...', 'ok');
     } else {
       setStatus('Settings saved.', 'ok');
     }
@@ -1200,10 +1206,10 @@ esp_err_t WebUiServer::handle_post_config(httpd_req_t* req) {
     }
 
     xSemaphoreTake(self->mutex_, portMAX_DELAY);
-    CalendarConfig updated = self->state_.config;
-    const std::string prev_ssid = updated.wifi_ssid;
-    const std::string prev_pass = updated.wifi_password;
+    const CalendarConfig prev_cfg = self->state_.config;
+    CalendarConfig updated = prev_cfg;
     const bool was_ap = self->state_.is_ap_mode;
+    const bool had_synced = self->state_.has_synced;
 
     if (const auto* j = root.get("wifi_ssid"); j && j->type == JsonVal::Type::String) {
         updated.wifi_ssid = j->s;
@@ -1264,11 +1270,22 @@ esp_err_t WebUiServer::handle_post_config(httpd_req_t* req) {
         }
     }
 
+    bool force_sync = false;
+    if (const auto* j = root.get("sync"); j && j->type == JsonVal::Type::Bool) {
+        force_sync = j->b;
+    }
+
     CalendarConfig::sanitize(updated);
     const bool saved = self->storage_.save(updated);
     if (saved) self->state_.config = updated;
-    const bool wifi_diff = (updated.wifi_ssid != prev_ssid || updated.wifi_password != prev_pass);
+    const bool wifi_diff = (updated.wifi_ssid != prev_cfg.wifi_ssid ||
+                            updated.wifi_password != prev_cfg.wifi_password);
+    const bool data_diff = (updated.timezone != prev_cfg.timezone ||
+                            updated.display_days != prev_cfg.display_days ||
+                            updated.calendars != prev_cfg.calendars);
     const bool will_reconnect = saved && updated.has_wifi() && (was_ap || wifi_diff);
+    const bool auto_sync = saved && !will_reconnect && !was_ap && (force_sync || data_diff || !had_synced);
+    const bool auto_redraw = saved && !will_reconnect && !was_ap && !auto_sync;
     const bool pw_set = !updated.wifi_password.empty();
     xSemaphoreGive(self->mutex_);
 
@@ -1276,19 +1293,27 @@ esp_err_t WebUiServer::handle_post_config(httpd_req_t* req) {
         return send_json(req, R"({"ok":false,"error":"Failed to save to NVS"})", "500 Internal Server Error");
     }
     if (will_reconnect) {
+        self->redraw_requested_.store(false, std::memory_order_release);
         self->wifi_changed_.store(true, std::memory_order_release);
+    } else if (auto_sync) {
+        self->redraw_requested_.store(false, std::memory_order_release);
+        self->sync_requested_.store(true, std::memory_order_release);
+    } else if (auto_redraw) {
+        self->redraw_requested_.store(true, std::memory_order_release);
     }
 
-    char resp[128];
+    char resp[192];
     std::snprintf(resp, sizeof(resp),
-                  R"({"ok":true,"wifi_password_set":%s,"reconnecting":%s})",
-                  pw_set ? "true" : "false", will_reconnect ? "true" : "false");
+                  R"({"ok":true,"wifi_password_set":%s,"reconnecting":%s,"syncing":%s,"refreshing":%s})",
+                  pw_set ? "true" : "false", will_reconnect ? "true" : "false",
+                  auto_sync ? "true" : "false", auto_redraw ? "true" : "false");
     return send_json(req, resp);
 }
 
 esp_err_t WebUiServer::handle_sync(httpd_req_t* req) {
     auto* self = static_cast<WebUiServer*>(req->user_ctx);
     self->touch_activity();
+    self->redraw_requested_.store(false, std::memory_order_release);
     self->sync_requested_.store(true, std::memory_order_release);
     return send_json(req, R"({"ok":true})");
 }
